@@ -1,0 +1,137 @@
+---
+title: Storage Service Setup
+description: Current storage and upload configuration for local disk and S3-compatible bucket deployments used by `@bullhouse/storage` and the Nest API.
+---
+
+# Storage Service Setup
+
+This page summarizes the storage configuration that the current backend actually uses.
+
+For endpoint behavior and frontend URL resolution rules, see the upload docs under `developer/uploads/`.
+
+## 1. Environment Variables
+
+All API upload/storage envs live in `apps/api/.env`. The current implementation validates these through `apps/api/src/config/env.validation.ts`.
+
+```bash
+# Local upload root
+UPLOAD_LOCATION=uploads
+UPLOAD_MAX_FILE_SIZE_MB=50
+STORAGE_DRIVER=auto
+
+# Bucket / S3-compatible storage
+STORAGE_BUCKET_ENDPOINT=http://localhost:9000
+STORAGE_BUCKET_ACCESS_KEY=rustfsadmin
+STORAGE_BUCKET_SECRET_KEY=rustfsadmin
+STORAGE_BUCKET_NAME=bullhouse-dev
+STORAGE_BUCKET_REGION=us-east-1
+STORAGE_BUCKET_FORCE_PATH_STYLE=true
+STORAGE_BUCKET_PUBLIC_URL=http://localhost:9000/bullhouse-dev
+
+# Optional readonly signer credentials
+STORAGE_BUCKET_READONLY_ACCESS_KEY=readonly_key
+STORAGE_BUCKET_READONLY_SECRET_KEY=readonly_secret
+```
+
+Notes:
+
+- `STORAGE_DRIVER` supports `local`, `bucket`, and `auto`.
+- Mobile upload (`POST /api/mobile/uploads`) is always capped at **5 MB** and does not use `UPLOAD_MAX_FILE_SIZE_MB`.
+- `STORAGE_BUCKET_REGION` is optional at validation level; the storage driver falls back internally when omitted.
+- Readonly signer credentials are used only when **both** readonly values are present.
+
+## 2. Local Disk Mode
+
+When bucket storage is not configured, uploads stay on local disk.
+
+Current behavior:
+
+- `UPLOAD_LOCATION` defaults to `uploads`.
+- Multer writes files into the local upload root first.
+- `StorageManager.ensureLocalStructure()` creates the expected subfolders.
+- `StorageUrlResolver` resolves local keys as `/${key}`.
+- `AppModule` only serves `/uploads/*` statically from the local upload root.
+
+Important caveat:
+
+- local `uploads/*` keys are directly renderable
+- local `public/*` keys are **not** directly renderable by default in this app, even though the resolver returns `/public/...`
+- if you need local direct rendering for `public/*`, add a matching static mount or use bucket mode in dev
+
+Minimal local example:
+
+```bash
+UPLOAD_LOCATION=uploads
+UPLOAD_MAX_FILE_SIZE_MB=50
+STORAGE_DRIVER=local
+```
+
+## 3. Bucket / S3-Compatible Mode
+
+When bucket storage is enabled, the same upload flow writes locally first and then pushes the file to the remote bucket.
+
+Current runtime behavior:
+
+- `public/*` keys resolve to direct non-expiring URLs
+- `uploads/*` keys resolve to signed URLs with expiry
+- upload responses still return the canonical `relativePath` key
+- on successful remote upload, the temporary local file is cleaned up by the storage layer
+- if remote upload fails, the API surfaces an upload/storage error instead of silently falling back to disk
+
+## 4. RustFS Local Setup
+
+This repo already includes a `rustfs` service in the root `docker-compose.yml`.
+
+Start it from the repository root:
+
+```bash
+docker compose up -d rustfs
+```
+
+Create the bucket once:
+
+```bash
+aws --endpoint-url http://localhost:9000 s3 mb s3://bullhouse-dev
+```
+
+Recommended API config for local RustFS:
+
+```bash
+STORAGE_DRIVER=bucket
+STORAGE_BUCKET_ENDPOINT=http://localhost:9000
+STORAGE_BUCKET_ACCESS_KEY=rustfsadmin
+STORAGE_BUCKET_SECRET_KEY=rustfsadmin
+STORAGE_BUCKET_NAME=bullhouse-dev
+STORAGE_BUCKET_REGION=us-east-1
+STORAGE_BUCKET_FORCE_PATH_STYLE=true
+STORAGE_BUCKET_PUBLIC_URL=http://localhost:9000/bullhouse-dev
+```
+
+Why this matters:
+
+- RustFS local URLs are path-style (`host/bucket/key`)
+- `STORAGE_BUCKET_FORCE_PATH_STYLE=true` is required for local RustFS testing in this repo
+- `STORAGE_BUCKET_PUBLIC_URL` must include the bucket path so public URLs resolve correctly
+
+Healthcheck caveat: the compose file uses a MinIO-compatible health endpoint. RustFS can still work for normal S3 operations even if that healthcheck looks unhealthy.
+
+## 5. Readonly Signer Credentials
+
+`UploadModule` creates a separate readonly signer only when both of these are set:
+
+- `STORAGE_BUCKET_READONLY_ACCESS_KEY`
+- `STORAGE_BUCKET_READONLY_SECRET_KEY`
+
+Behavior:
+
+- if both are present, private signed URLs are generated with readonly credentials
+- if either is missing, signed URL generation falls back to the main storage credentials
+
+## 6. Startup Bucket Policy
+
+On upload module startup, the service attempts to apply a bucket policy so:
+
+- `public/*` is readable without signing
+- non-public keys stay private
+
+If the policy application fails, the service logs a warning and the app keeps booting.

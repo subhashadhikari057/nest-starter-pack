@@ -1,0 +1,51 @@
+---
+title: Realtime Scaling
+---
+
+Scale the realtime layer using Redis, sticky sessions, and horizontal replicas.
+
+## Redis Adapter
+
+Use the Socket.IO Redis adapter so rooms and broadcasts are shared across instances.
+
+```mermaid
+flowchart LR
+  A[API Instance 1] --> R[(Redis)]
+  B[API Instance 2] --> R
+  C[API Instance 3] --> R
+  R --> D[Shared Rooms]
+```
+
+## Load Balancer (Sticky Sessions)
+
+Socket.IO requires sticky sessions so the same client consistently hits the same instance.
+
+- Enable cookie-based or IP-hash affinity on your load balancer.
+- Keep the Redis adapter enabled for cross-instance broadcasts.
+
+## Horizontal Scaling Strategy
+
+- Scale API pods horizontally based on connection counts.
+- Keep Redis in a dedicated cluster with replication and persistence.
+- Use connection limits per user to avoid abuse.
+
+## Monitoring Setup
+
+- Track active connections, emit rates, and Redis latency.
+- Alert on connection errors and high event backlog.
+
+```mermaid
+sequenceDiagram
+    participant LB as Load Balancer
+    participant API1 as API Instance 1
+    participant API2 as API Instance 2
+    participant Redis as Redis Pub/Sub
+
+    LB->>API1: Client A (sticky session)
+    LB->>API2: Client B (sticky session)
+    API1->>Redis: Publish message
+    Redis-->>API2: Subscribe/Forward message
+    API2->>Redis: Publish message
+    Redis-->>API1: Subscribe/Forward message
+
+```

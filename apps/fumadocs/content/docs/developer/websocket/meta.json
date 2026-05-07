@@ -1,0 +1,13 @@
+{
+	"title": "Websockets",
+	"pages": [
+		"realtime-flutter",
+		"realtime-configuration",
+		"realtime-architecture",
+		"realtime-setup",
+		"realtime-events",
+		"realtime-examples",
+		"realtime-scaling",
+		"realtime-troubleshooting"
+	]
+}

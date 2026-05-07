@@ -1,0 +1,64 @@
+---
+title: BullMQ Job Scheduler
+description: Guide to background job processing with BullMQ in the API runtime.
+---
+
+# BullMQ Job Scheduler
+
+BullMQ is used for asynchronous/background processing with Redis.
+
+## 1. Registered Queues
+
+Queue names are sourced from `@auction-system/jobs` (`QueueName` enum).
+Current runtime registration is in:
+
+- `apps/api/src/services/bullmq/bull.module.ts`
+
+Active queues include:
+
+- `notifications`
+- `cart`
+- `orders`
+- `orders_maintenance`
+- `upload`
+- `maintenance`
+- `referrals`
+- `loyalty`
+- `billing`
+
+## 2. Service Usage
+
+Use `BullService` with injected queue tokens.
+
+```ts
+import { InjectQueue } from "@nestjs/bullmq";
+import { Injectable } from "@nestjs/common";
+import { QueueName } from "@auction-system/jobs";
+import type { Queue } from "bullmq";
+import { BullService } from "@/services/bullmq/bull.service";
+
+@Injectable()
+export class ExampleService {
+  constructor(
+    private readonly bullService: BullService,
+    @InjectQueue(QueueName.ORDERS) private readonly ordersQueue: Queue,
+  ) {}
+
+  async enqueueOrderCancel(orderId: number, cancelledBy: string): Promise<void> {
+    await this.bullService.addJob(
+      this.ordersQueue,
+      "order.cancel",
+      { orderId, cancelledBy, cancelledByActorType: "customer" },
+      { priority: 1 },
+    );
+  }
+}
+```
+
+## 3. Best Practices
+
+- Keep payloads small and serializable
+- Use idempotent processors
+- Configure retries + exponential backoff
+- Set remove-on-complete/fail retention policies
+- Log start/success/failure with correlation IDs

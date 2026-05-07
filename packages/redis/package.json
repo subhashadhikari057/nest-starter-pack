@@ -1,0 +1,29 @@
+{
+	"name": "@bullhouse/redis",
+	"version": "0.0.0",
+	"main": "./dist/index.js",
+	"module": "./dist/index.mjs",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": "./dist/index.mjs",
+			"require": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsdown --no-watch",
+		"dev": "tsdown",
+		"start:dev": "tsdown --watch",
+		"check": "tsc --noEmit",
+		"lint": "biome check ."
+	},
+	"dependencies": {
+		"ioredis": "^5.4.1"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"tsdown": "catalog:",
+		"typescript": "catalog:"
+	}
+}

@@ -1,0 +1,12 @@
+{
+	"title": "Developer Resources",
+	"pages": [
+		"API_DEVELOPMENT_PLAYBOOK",
+		"BACKEND_GUIDELINES",
+		"DATABASE_SETUP",
+		"ROLE_PERMISSIONS_SETUP",
+		"bullmq",
+		"storage",
+		"uploads"
+	]
+}

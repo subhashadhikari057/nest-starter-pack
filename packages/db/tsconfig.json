@@ -1,0 +1,17 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"ignoreDeprecations": "6.0",
+		"declaration": true,
+		"declarationMap": true,
+		"sourceMap": true,
+		"outDir": "dist",
+		"composite": true,
+		"rootDir": "src"
+	},
+	"include": ["src/**/*"],
+	"exclude": [
+		"dist",
+		"drizzle.config.ts"
+	]
+}

@@ -1,0 +1,11 @@
+{
+	"title": "Uploads & Storage",
+	"pages": [
+		"overview",
+		"upload-types",
+		"api-reference",
+		"frontend-integration",
+		"storage-url-resolver",
+		"configuration"
+	]
+}

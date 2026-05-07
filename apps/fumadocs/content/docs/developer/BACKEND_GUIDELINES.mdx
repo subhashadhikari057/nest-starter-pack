@@ -1,0 +1,142 @@
+---
+title: Starter Nest Backend Guidelines
+description: This document explains how the `apps/api` service is structured, how to extend it safely, and how to write and test new backend code with NestJS. It is intentionally beginner-friendly—treat it as the playbook for everyday backend work in this repo.
+---
+
+# Starter Nest Backend Guidelines
+
+This document explains how the `apps/api` service is structured, how to extend it safely, and how to write and test new backend code with NestJS. It is intentionally beginner-friendly—treat it as the playbook for everyday backend work in this repo.
+
+---
+
+## How the API Is Organized
+
+- **Nest entrypoint** – `apps/api/src/main.ts` boots the Nest app, reads `.env`, and registers global filters/interceptors declared in `apps/api/src/app.module.ts`.
+- **Global providers** – `AllExceptionsFilter` (`src/common/filters/all-exceptions.filter.ts`) normalizes errors, and `LoggingInterceptor` (`src/common/interceptors/logging.interceptor.ts`) logs every request. Both are wired up globally in `AppModule`, so new controllers automatically benefit from consistent error and log handling.
+- **Modules-first design** – Each feature lives in `src/modules/<feature>`. A typical feature module contains a controller (HTTP boundary), a service (business logic), DTOs, interfaces, and guard/strategy files if authentication is needed.
+- **Workspace packages** – Database models, email, OTP, and storage clients come from the `packages/*` workspaces (`@bullhouse/db`, `@bullhouse/email`, `@bullhouse/otp`, `@bullhouse/storage`). Always import those instead of re‑implementing shared logic.
+
+---
+
+## File Structure & Uses (apps/api)
+
+| Path | Use |
+| --- | --- |
+| `src/app.module.ts` | Central wiring of modules, global filters, interceptors, and config validation. |
+| `src/main.ts` | Creates the Nest application, enables CORS, and starts the HTTP server. |
+| `src/common/*` | Cross-cutting concerns: authorization decorators/guards, reusable DTO helpers, exception filters, interceptors. |
+| `src/config/env.validation.ts` | Zod schema that validates `.env` at boot; add every new env var here. |
+| `src/database/database.module.ts` | Creates the Drizzle database connection and exports the `DATABASE` injection token. |
+| `src/modules/auth/*` | Local/email + OAuth auth flows, JWT issuing, verification tokens, cookie helpers, guards, and strategies. |
+| `src/modules/users/*` | User CRUD exposed via guarded REST endpoints. Demonstrates Drizzle queries + role-based permissions. |
+| `src/modules/upload/*` | Secure file uploads via Multer + `StorageManager`, plus DTO validation for file metadata. |
+| `src/modules/notifications/*` | Email module wrapping `EmailClient` with dependency-injected SMTP configuration. |
+| `src/utils/multer.ts` | Shared Multer config that groups uploads by MIME type and enforces file-size limits. |
+| `scripts/*.mjs` | Utility scripts (`generate-jwt-keys`, `ensure-jwt-env`) used in build/dev pipelines. |
+| `test/*` | Jest e2e setup (`test/app.e2e-spec.ts`) plus per-module unit specs (e.g., `src/modules/auth/*.spec.ts`). |
+| `uploads/` | Default local upload target when `STORAGE_DRIVER=local` or during development. |
+
+---
+
+## Environment & Secrets
+
+1. Copy `apps/api/sample.env` to `apps/api/.env` (never commit real secrets).
+2. Generate RSA keys for JWTs with `pnpm --filter api generate:jwt-keys`. The script writes `.env.generated`; copy the values into `.env`.
+3. `ConfigModule.forRoot` loads `.env` and validates it with `validateEnv` (`src/config/env.validation.ts`). Missing or malformed variables crash the app early, so add new keys to that schema before using them.
+4. SMTP credentials (see `apps/api/.env`) are optional; when absent, `EmailNotificationService` logs outbound emails instead of sending them. This makes the dev experience forgiving for beginners.
+
+**Tip:** `scripts/ensure-jwt-env.mjs` runs before each build; if JWT keys are absent the build fails with a friendly message.
+
+---
+
+## Everyday Development Workflow
+
+1. **Install deps** – Run `pnpm install` at the repo root.
+2. **Start the API** – `pnpm --filter api dev` watches TypeScript files and restarts Nest automatically.
+3. **Lint & format** – `pnpm --filter api check` runs Biome’s formatter/linter with autofix. Keep the tree green before opening a PR.
+4. **Type safety** – `pnpm --filter api check-types` runs the project references build for `tsconfig.build.json`.
+5. **Unit tests** – `pnpm --filter api test` (or `test:watch` while coding).
+6. **E2E tests** – `pnpm --filter api test:e2e`. These boot the full Nest app, so make sure required env vars or test doubles are set.
+
+---
+
+## Building New Features
+
+1. **Create a module** – Use `nest g module modules/<name>` or copy an existing module’s structure (`users`, `upload`). Export controllers/services from `<feature>.module.ts`.
+2. **Define DTOs** – Place DTO classes under `src/modules/<feature>/dto`. Use `class-validator` decorators (e.g., `@IsString`, `@IsUUID`) and `class-transformer` for type coercion.
+3. **Service logic** – Keep non-trivial logic inside `<feature>.service.ts`. Inject the Drizzle database via `@Inject(DATABASE)` and prefer repository-style helper methods for reuse.
+4. **Routes** – Controllers belong in `src/modules/<feature>/<feature>.controller.ts`. Decorate with `@ApiTags`, `@ApiOperation`, etc., so the Swagger explorer (if enabled) is accurate.
+5. **Authorization** – Protect routes with `@UseGuards(JwtAuthGuard, RoleGuard)` and annotate required permissions via `@Permissions(...)`. Add permission codes in `src/common/authorization/role-permissions.constant.ts` if needed.
+6. **Responses** – Return DTOs or wrap them with `ResponseDto` when you need metadata/pagination. Avoid leaking database entities directly; map to response DTOs (`UsersService.mapToResponse` is a good example).
+7. **Background operations** – If a workflow involves email/SMS/OTP, reuse the provided services (`EmailNotificationService`, `VerificationTokenService`) instead of creating new transports.
+8. **Uploads & storage** – Reuse `StorageManager` via dependency injection and keep upload processing inside services. Use `multerOptions` for consistent limits and folder naming.
+
+---
+
+## Database Guidelines
+
+- **Data access** – Import tables, enums, and helper types from `@bullhouse/db`. Each table (e.g., `user`, `account`, `role`) exposes typed insert/select helpers, which keeps queries type-safe.
+- **Injection** – Request the database connection by injecting `DATABASE` (`constructor(@Inject(DATABASE) private readonly db: Database) {}`) so you can mock it easily in tests.
+- **Transactions** – Wrap multi-table changes in `this.db.transaction(async (tx) => { ... })` like `AuthService.register` or `UsersService.create`. Return values from the transaction when you need newly created rows.
+- **Migrations** – This repo uses Drizzle; check `packages/db` for schema definitions and migration scripts. Run them before interacting with the API.
+- **Soft vs. hard deletes** – Current services (e.g., `UsersService.remove`) perform hard deletes. Introduce status flags if you need soft deletes, and document the behavior in your controller.
+
+---
+
+## Error Handling & Logging
+
+- Throw Nest HTTP exceptions (`BadRequestException`, `NotFoundException`, etc.) from services/controllers. `AllExceptionsFilter` converts them into consistent JSON responses with timestamps and request paths.
+- `AllExceptionsFilter` also handles `ZodError` and `class-validator` errors gracefully, so lean on declarative validation instead of manual `if` statements where possible.
+- `LoggingInterceptor` logs the method, URL, and timing for every request. Use `Logger` within services (see `AuthService`) for domain-specific events; they blend with the interceptor output.
+- Avoid returning raw errors to the client—throw or rethrow exceptions so the global filter formats them.
+
+---
+
+## Security & Authentication
+
+- **JWT + sessions** – `AuthService` issues access and refresh tokens, sets cookies (`ACCESS_TOKEN_COOKIE`, `REFRESH_TOKEN_COOKIE`, `SESSION_COOKIE`), and enforces TTLs from env vars.
+- **Guards** – Apply `JwtAuthGuard` to routes that require authentication. Combine with `RoleGuard` and the `@Permissions` decorator to restrict access by role. Permission strings come from `ROLE_PERMISSIONS` (`src/common/authorization/role-permissions.constant.ts`).
+- **OAuth** – Google and Facebook strategies already exist. When adding new providers, follow the pattern under `src/modules/auth/strategies`.
+- **Input sanitation** – Parse phone numbers with `libphonenumber-js`, hash passwords with `bcrypt`, and never expose tokens or hashed data in responses.
+- **Cookies** – `AuthService` centralizes cookie settings (domain, SameSite, Secure). Reuse `setAuthCookies`/`clearAuthCookies` rather than setting cookies manually.
+
+---
+
+## Testing Guidelines
+
+### Unit Tests
+
+1. **Location & naming** – Place unit specs next to the file under test (e.g., `auth.controller.spec.ts`). Jest picks up `*.spec.ts`.
+2. **Setup** – Use `jest.fn()` mocks for injected services (see `auth.controller.spec.ts`). Narrow the mock type with `jest.Mocked<Pick<Service, "methodA" | "methodB">>` to keep TypeScript helpful.
+3. **Context objects** – Build fake `Request`, `Response`, or database objects with helper creators (the auth tests include small factory functions for requests/responses).
+4. **Database-heavy services** – Mock the `Database` instance by providing an object that implements the methods you call (`select`, `insert`, `transaction`). For more complex flows, create small helper functions that return resolved Promises with expected shapes.
+5. **Assertions** – Always assert both the return payload and the side effects (e.g., cookies set, services called with context). When testing errors, use `await expect(fn()).rejects.toThrow(...)`.
+
+### Integration & E2E Tests
+
+1. **Location** – Use `test/app.e2e-spec.ts` as the template. It spins up a real `AppModule` and issues HTTP calls with `supertest`.
+2. **Bootstrapping** – Inside `beforeEach`, create a `TestingModule`, call `createNestApplication()`, configure global pipes/filters if your feature needs them, and `await app.init()`.
+3. **State** – Seed the database or mock external services before running assertions. For deterministic tests, consider using an in-memory database or transactional rollbacks between specs.
+4. **Auth flows** – To test protected routes, issue a login request first (or mock JWT validation by overriding providers in the testing module).
+5. **Snapshots & docs** – Prefer explicit JSON assertions over Jest snapshots so failures tell you exactly what regressed.
+
+### Running Tests
+
+- `pnpm --filter api test` – unit tests (default Jest config uses `src` as root).
+- `pnpm --filter api test:watch` – runs unit tests in watch mode.
+- `pnpm --filter api test:e2e` – runs specs from `apps/api/test`.
+- `pnpm --filter api test:cov` – generates coverage in `apps/api/coverage`.
+
+---
+
+## Tips for Beginner Developers
+
+- Start small: trace how `UsersController` delegates to `UsersService`, which in turn talks to the database. Replicate that pattern for new resources.
+- Keep logic layered: controllers map HTTP → DTOs, services perform business rules, and utility classes encapsulate infrastructure concerns (email, storage, OTP).
+- Favor composition over duplication: if you find yourself copying code between modules, extract a helper in `src/common` or `src/utils`.
+- Update documentation when you introduce new env vars, permissions, or modules. A short note in this file or a sibling doc saves teammates time.
+- Ask yourself “how will I test this?” before writing code. If something is painful to test, consider refactoring to inject dependencies or split responsibilities.
+
+---
+
+Following these guidelines keeps the backend consistent, predictable, and easy to onboard to. When in doubt, look at the existing modules (`auth`, `users`, `upload`) for working examples and adapt their patterns for your feature.

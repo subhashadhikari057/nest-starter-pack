@@ -1,0 +1,32 @@
+{
+	"name": "@bullhouse/otp",
+	"version": "0.1.0",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs",
+			"default": "./dist/index.js"
+		},
+		"./*": {
+			"types": "./dist/*.d.ts",
+			"import": "./dist/*.js",
+			"require": "./dist/*.cjs",
+			"default": "./dist/*.js"
+		}
+	},
+	"scripts": {
+		"build": "tsdown"
+	},
+	"dependencies": {},
+	"devDependencies": {
+		"tsdown": "catalog:"
+	},
+	"peerDependencies": {
+		"typescript": "catalog:"
+	},
+	"packageManager": "pnpm@10.10.0"
+}

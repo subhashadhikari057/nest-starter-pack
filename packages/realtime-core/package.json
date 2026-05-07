@@ -1,0 +1,43 @@
+{
+	"name": "@bullhouse/realtime-core",
+	"version": "0.0.0",
+	"main": "./dist/index.js",
+	"module": "./dist/index.mjs",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": "./dist/index.mjs",
+			"require": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		},
+		"./room-keys": {
+			"import": "./dist/room-keys/index.mjs",
+			"require": "./dist/room-keys/index.js",
+			"types": "./dist/room-keys/index.d.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsdown --no-watch",
+		"dev": "tsdown",
+		"start:dev": "tsdown --watch",
+		"check": "tsc --noEmit",
+		"lint": "biome check .",
+		"test": "jest"
+	},
+	"peerDependencies": {
+		"socket.io": "^4.7.5"
+	},
+	"dependencies": {
+		"@bullhouse/redis": "workspace:*",
+		"uuid": "catalog:"
+	},
+	"devDependencies": {
+		"@types/jest": "^30.0.0",
+		"@types/node": "catalog:",
+		"ioredis-mock": "^8.9.0",
+		"jest": "^30.0.0",
+		"ts-jest": "^29.4.6",
+		"tsdown": "catalog:",
+		"typescript": "catalog:"
+	}
+}

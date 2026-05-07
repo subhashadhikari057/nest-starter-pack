@@ -1,0 +1,130 @@
+name: auction-system
+
+services:
+    postgres:
+        image: postgres:18-alpine
+        container_name: auction-system-postgres
+        ports:
+            - "5433:5432"
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER:-auction-system}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-securepassword}
+            POSTGRES_DB: ${POSTGRES_DB:-auction_system}
+        volumes:
+            - postgres_data:/var/lib/postgresql
+        restart: always
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-auction-system} -d ${POSTGRES_DB:-auction_system}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+    redis:
+        image: redis:7-alpine
+        container_name: auction-system
+        command: >
+            sh -c 'set -e;
+            REDIS_USER="${REDIS_USERNAME:-auction-system}";
+            REDIS_PASS="${REDIS_PASSWORD:-securepassword}";
+            mkdir -p /usr/local/etc/redis;
+            printf "user default off\nuser %s on >%s allkeys allcommands allchannels\n" "$$REDIS_USER" "$$REDIS_PASS" > /usr/local/etc/redis/users.acl;
+            exec redis-server --aclfile /usr/local/etc/redis/users.acl'
+        ports:
+            - "6380:6379"
+        volumes:
+            - redis_data:/data
+        environment:
+            - REDIS_USERNAME=${REDIS_USERNAME:-auction-system}
+            - REDIS_PASSWORD=${REDIS_PASSWORD:-securepassword}
+        restart: always
+        healthcheck:
+            test: ["CMD", "redis-cli", "-u", "redis://${REDIS_USERNAME:-auction-system}:${REDIS_PASSWORD:-securepassword}@localhost:6379", "ping"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+#    mongodb:
+#        image: mongo:8-noble
+#        container_name: bullhouse_mongodb
+#        ports:
+#            - "27018:27017"
+#        volumes:
+#            - mongodb_data:/data/db
+#        environment:
+#            MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-bullhouse}
+#            MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-securepassword}
+#            MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-bullhouse}
+#        restart: always
+#        healthcheck:
+#            test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+#            interval: 10s
+#            timeout: 5s
+#            retries: 5
+#
+#    rustfs:
+#        image: rustfs/rustfs:latest
+#        container_name: bullhouse_rustfs
+#        ports:
+#            - "9000:9000"
+#            - "9001:9001"
+#        volumes:
+#            - ${RUSTFS_HOST_DATA_PATH:-./data/rustfs}:/data
+#        environment:
+#            RUSTFS_ROOT_USER: "${RUSTFS_ACCESS_KEY:-rustfsadmin}"
+#            RUSTFS_ROOT_PASSWORD: "${RUSTFS_SECRET_KEY:-rustfsadmin}"
+#            RUSTFS_CONSOLE_ENABLE: "true"
+#        command: server /data
+#        restart: always
+#        healthcheck:
+#            test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+#            interval: 30s
+#            timeout: 20s
+#            retries: 3
+#            start_period: 10s
+#
+#    nginx:
+#        # Local HLS-serving nginx that mirrors prod bhs2.conf / gs2.conf via
+#        # infra/nginx/hls.conf.template. The template is env-parameterized and
+#        # rendered by nginx:alpine's built-in /etc/nginx/templates mechanism
+#        # (NGINX_ENVSUBST_FILTER=^HLS_) — no custom entrypoint.
+#        image: nginx:alpine
+#        container_name: bullhouse_nginx_hls
+#        restart: unless-stopped
+#        depends_on:
+#            rustfs:
+#                condition: service_healthy
+#        ports:
+#            - "${HLS_LISTEN_PORT:-8080}:${HLS_LISTEN_PORT:-8080}"
+#        environment:
+#            HLS_LISTEN_PORT: ${HLS_LISTEN_PORT:-8080}
+#            HLS_SERVER_NAME: ${HLS_SERVER_NAME:-_}
+#            # macOS resolves host.docker.internal natively; extra_hosts below
+#            # adds host-gateway for Linux CI / Linux dev machines so the same
+#            # URL reaches the host-port-5001 API on both platforms.
+#            HLS_AUTH_UPSTREAM: ${HLS_AUTH_UPSTREAM:-http://host.docker.internal:5001}
+#            # Reserved (not consumed by hls.conf.template yet — see infra/nginx/README.md).
+#            HLS_S3_UPSTREAM: ${HLS_S3_UPSTREAM:-http://rustfs:9000}
+#            HLS_S3_BUCKET: ${HLS_S3_BUCKET:-bullhouse-dev}
+#            HLS_ALLOW_ORIGIN: ${HLS_ALLOW_ORIGIN:-*}
+#            HLS_TLS_ENABLED: ${HLS_TLS_ENABLED:-false}
+#            NGINX_ENVSUBST_FILTER: "^HLS_"
+#            NGINX_ENVSUBST_TEMPLATE_DIR: /etc/nginx/templates
+#            NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx/conf.d
+#        volumes:
+#            - ./infra/nginx:/etc/nginx/templates:ro
+#        extra_hosts:
+#            - "host.docker.internal:host-gateway"
+#        healthcheck:
+#            # 127.0.0.1 (not localhost) — nginx:alpine's 10-listen-on-ipv6-by-default.sh
+#            # runs before envsubst, so our rendered hls.conf only listens on IPv4;
+#            # "localhost" resolves to ::1 first inside the container and would fail.
+#            test: ["CMD", "wget", "-qO-", "http://127.0.0.1:${HLS_LISTEN_PORT:-8080}/healthz"]
+#            interval: 15s
+#            timeout: 5s
+#            retries: 5
+#            start_period: 10s
+
+volumes:
+    postgres_data:
+    redis_data:
+#    mongodb_data:

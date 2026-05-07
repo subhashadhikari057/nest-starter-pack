@@ -1,0 +1,161 @@
+{
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	"vcs": {
+		"enabled": false,
+		"clientKind": "git",
+		"useIgnoreFile": false
+	},
+	"files": {
+		"ignoreUnknown": false,
+		"includes": [
+			"**",
+			"!**/.next",
+			"!**/dist",
+			"!**/.turbo",
+			"!**/dev-dist",
+			"!**/.zed",
+			"!**/.vscode",
+			"!**/routeTree.gen.ts",
+			"!**/src-tauri",
+			"!**/.nuxt",
+			"!bts.jsonc",
+			"!**/.expo",
+			"!**/.wrangler",
+			"!**/.alchemy",
+			"!**/.svelte-kit",
+			"!**/wrangler.jsonc",
+			"!**/.source",
+			"!**/biome.json",
+			"!**/nest-cli.json",
+			"!**/tsconfig*.json",
+			"!**/jest*.json"
+		]
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab"
+	},
+	"assist": {
+		"actions": {
+			"source": {
+				"organizeImports": {
+					"level": "on",
+					"options": {
+						"groups": [
+							{
+								"type": true
+							},
+							":BLANK_LINE:",
+							":NODE:",
+							":BLANK_LINE:",
+							"external",
+							":BLANK_LINE:",
+							"~/**",
+							":BLANK_LINE:",
+							"internal",
+							":BLANK_LINE:",
+							"parent",
+							":BLANK_LINE:",
+							"sibling",
+							":BLANK_LINE:",
+							"index"
+						]
+					}
+				}
+			}
+		}
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"a11y": {
+				"useFocusableInteractive": "warn",
+				"useSemanticElements": "warn",
+				"noRedundantRoles": "warn",
+				"useAriaPropsForRole": "warn",
+				"noLabelWithoutControl": "off",
+				"noRedundantAlt": "warn",
+				"noSvgWithoutTitle": "warn",
+				"noStaticElementInteractions": "warn",
+				"useKeyWithClickEvents": "warn",
+				"useValidAnchor": "warn"
+			},
+			"correctness": {
+				"useExhaustiveDependencies": "info",
+				"noChildrenProp": "off",
+				"useParseIntRadix": "warn"
+			},
+			"suspicious": {
+				"noExplicitAny": "warn",
+				"noUnassignedVariables": "warn",
+				"noArrayIndexKey": "warn",
+				"noDocumentCookie": "warn"
+			},
+			"security": {
+				"noDangerouslySetInnerHtml": "warn"
+			},
+			"nursery": {
+				"useSortedClasses": {
+					"level": "warn",
+					"fix": "safe",
+					"options": {
+						"functions": ["clsx", "cva", "cn"]
+					}
+				}
+			},
+			"style": {
+				"noParameterAssign": "error",
+				"useAsConstAssertion": "error",
+				"useDefaultParameterLast": "error",
+				"useEnumInitializers": "error",
+				"useSelfClosingElements": "error",
+				"useSingleVarDeclarator": "error",
+				"noUnusedTemplateLiteral": "error",
+				"useNumberNamespace": "error",
+				"noInferrableTypes": "error",
+				"noUselessElse": "error"
+			}
+		}
+	},
+	"overrides": [
+		{
+			"includes": ["apps/api/**/*.{js,jsx,ts,tsx}"],
+			"javascript": {
+				"parser": {
+					"unsafeParameterDecoratorsEnabled": true
+				}
+			},
+			"linter": {
+				"rules": {
+					"correctness": {
+						"useHookAtTopLevel": "off"
+					},
+					"style": {
+						"useImportType": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["apps/media-worker/**/*.{js,jsx,ts,tsx}"],
+			"javascript": {
+				"parser": {
+					"unsafeParameterDecoratorsEnabled": true
+				}
+			},
+			"linter": {
+				"rules": {
+					"style": {
+						"useImportType": "off"
+					}
+				}
+			}
+		}
+	],
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "double"
+		}
+	}
+}

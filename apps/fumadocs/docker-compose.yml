@@ -1,0 +1,14 @@
+services:
+  fumadocs:
+    build:
+      context: ../..
+      dockerfile: apps/fumadocs/Dockerfile
+    container_name: bullhouse-fumadocs
+    ports:
+      - "4000:4000"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"

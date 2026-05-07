@@ -1,0 +1,67 @@
+{
+	"name": "bullhouse",
+	"private": true,
+	"type": "module",
+	"workspaces": [
+		"apps/*",
+		"packages/*"
+	],
+	"scripts": {
+		"setup": "bash scripts/setup.sh",
+		"check": "biome check --write .",
+		"format": "biome format --write .",
+		"prepare": "husky",
+		"dev": "turbo dev",
+		"build": "turbo build",
+		"start": "turbo start",
+		"start:staging": "turbo start:staging",
+		"test": "turbo test",
+		"check-types": "turbo check-types",
+		"dev:native": "turbo -F native dev",
+		"dev:web": "turbo -F web dev",
+		"dev:server": "turbo -F server dev",
+		"dev:media-worker": "pnpm --filter media-worker start:dev",
+		"dev:customer": "turbo -F customer dev",
+		"infra:up": "docker compose -f docker-compose.dev.yml up -d",
+		"infra:down": "docker compose -f docker-compose.dev.yml down",
+		"infra:reset": "docker compose -f docker-compose.dev.yml down -v",
+		"infra:logs": "docker compose -f docker-compose.dev.yml logs -f",
+		"db:studio": "turbo -F @bullhouse/db db:studio",
+		"db:generate": "turbo -F @bullhouse/db db:generate",
+		"db:migrate": "turbo -F @bullhouse/db db:migrate",
+		"db:seed": "turbo -F @bullhouse/db db:seed",
+		"db:seed:prod": "turbo -F @bullhouse/db db:seed:prod",
+		"db:start": "turbo -F @bullhouse/db db:start",
+		"db:watch": "turbo -F @bullhouse/db db:watch",
+		"db:stop": "turbo -F @bullhouse/db db:stop",
+		"db:down": "turbo -F @bullhouse/db db:down"
+	},
+	"dependencies": {
+		"dotenv": "^17.2.2",
+		"uuid": "catalog:",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.3.10",
+		"@types/node": "catalog:",
+		"husky": "^9.1.7",
+		"lint-staged": "^16.2.7",
+		"socket.io-client": "^4.8.1",
+		"tsdown": "^0.15.5",
+		"turbo": "^2.7.4"
+	},
+	"lint-staged": {
+		"*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,jsonc}": [
+			"biome check --write --no-errors-on-unmatched --files-ignore-unknown=true"
+		],
+		"!(biome|nest-cli|tsconfig*|jest*|package).json": [
+			"biome check --write --no-errors-on-unmatched --files-ignore-unknown=true"
+		]
+	},
+	"config": {
+		"commitizen": {
+			"path": "./node_modules/cz-conventional-changelog"
+		}
+	},
+	"packageManager": "pnpm@10.33.0"
+}

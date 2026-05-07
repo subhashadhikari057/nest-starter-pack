@@ -1,0 +1,39 @@
+---
+title: Realtime Examples
+---
+
+## Order Tracking
+
+```ts
+realtimeService.notifyOrderStatusChange(orderId, "ready", {
+	customerId,
+	storeId,
+	agentId,
+});
+```
+
+## Agent Coordination
+
+```ts
+realtimeService.notifyDeliveryAssigned(orderId, agentId);
+realtimeService.notifyAgentLocationUpdate(agentId, {
+	lat: 27.7172,
+	lng: 85.3240,
+});
+```
+
+## Stock Alerts
+
+```ts
+realtimeService.notifyStockUpdate(storeId, productId, stockCount);
+```
+
+```mermaid
+sequenceDiagram
+  participant Store
+  participant API
+  participant Client
+
+  Store->>API: Stock change
+  API-->>Client: inventory.stock_updated
+```

@@ -1,0 +1,122 @@
+---
+title: Configuration
+description: Environment variables and local/RustFS setup for the current NestJS upload implementation.
+---
+
+# Configuration
+
+ > Audience: backend, devops
+ > Scope: `apps/api/src/config/env.validation.ts`, `apps/api/src/modules/upload/upload.module.ts`, `apps/api/src/app.module.ts`, `docker-compose.yml`
+
+---
+
+## Environment Variables
+
+### Core Upload Settings
+
+| Variable | Default | Description |
+|---|---|---|
+| `UPLOAD_LOCATION` | `uploads` | Local upload root used by Multer + `StorageManager` (`resolveUploadRoot`). |
+| `UPLOAD_MAX_FILE_SIZE_MB` | `50` | Max file size for admin upload endpoints (MB). |
+| `STORAGE_DRIVER` | `auto` | Driver selection: `local`, `bucket`, or `auto`. |
+
+ > Mobile upload (`POST /mobile/uploads`) is always limited to **5 MB** (`mobileMulterOptions`), independent of `UPLOAD_MAX_FILE_SIZE_MB`.
+
+### Bucket (S3-compatible: RustFS/MinIO/S3)
+
+| Variable | Required | Description |
+|---|---|---|
+| `STORAGE_BUCKET_ENDPOINT` | When using bucket | S3 endpoint, e.g. `http://localhost:9000` |
+| `STORAGE_BUCKET_ACCESS_KEY` | When using bucket | Read-write credential for upload/delete |
+| `STORAGE_BUCKET_SECRET_KEY` | When using bucket | Read-write secret |
+| `STORAGE_BUCKET_NAME` | When using bucket | Bucket name, e.g. `bullhouse-dev` |
+| `STORAGE_BUCKET_REGION` | No | Optional region passed through to bucket config |
+| `STORAGE_BUCKET_PUBLIC_URL` | Recommended | Public base URL used to build direct URLs for `public/*` objects |
+| `STORAGE_BUCKET_FORCE_PATH_STYLE` | Recommended for RustFS/MinIO | Set `true` for local RustFS/MinIO path-style endpoints |
+| `STORAGE_BUCKET_READONLY_ACCESS_KEY` | Optional | Read-only credential for signed URL generation |
+| `STORAGE_BUCKET_READONLY_SECRET_KEY` | Optional | Read-only secret for signed URL generation |
+
+---
+
+## Local Driver (no bucket)
+
+When `STORAGE_DRIVER=local` (or `auto` without bucket credentials), uploads stay on disk.
+
+`StorageUrlResolver` still resolves local keys as `/${key}`. In the current Nest app, `AppModule` only serves one static mount:
+
+- `serveRoot: /uploads`
+- `rootPath: join(process.cwd(), "uploads")`
+
+That means local keys under `uploads/*` are directly viewable, but local keys under `public/*` are **not** exposed by the current static config even though the resolver returns `/public/...`.
+
+Use this local setup when your frontend only needs local `uploads/*` paths, or when you understand that `public/*` local URLs are not directly served by default:
+
+```bash
+UPLOAD_LOCATION=uploads
+STORAGE_DRIVER=local
+UPLOAD_MAX_FILE_SIZE_MB=50
+```
+
+**Important:** if you need direct rendering for public uploads in local/dev, prefer bucket mode with `STORAGE_BUCKET_PUBLIC_URL` (matching production semantics) or add a matching static mount in the backend implementation.
+
+---
+
+## RustFS Local Setup (root `docker-compose.yml`)
+
+The repo already includes a `rustfs` service in the root `docker-compose.yml` on ports `9000` (S3 API) and `9001` (console).
+
+```bash
+# from repository root
+docker compose up -d rustfs
+```
+
+Create the bucket once (example):
+
+```bash
+aws --endpoint-url http://localhost:9000 s3 mb s3://bullhouse-dev
+```
+
+Then configure the API:
+
+```bash
+STORAGE_DRIVER=bucket
+STORAGE_BUCKET_ENDPOINT=http://localhost:9000
+STORAGE_BUCKET_ACCESS_KEY=rustfsadmin
+STORAGE_BUCKET_SECRET_KEY=rustfsadmin
+STORAGE_BUCKET_NAME=bullhouse-dev
+STORAGE_BUCKET_REGION=us-east-1
+STORAGE_BUCKET_FORCE_PATH_STYLE=true
+STORAGE_BUCKET_PUBLIC_URL=http://localhost:9000/bullhouse-dev
+```
+
+Why path-style/public URL shape matters locally:
+
+- With RustFS/MinIO, object URLs are path-style (`host/bucket/key`)
+- Public keys are still stored inside the same bucket under `public/...`
+- Set `STORAGE_BUCKET_PUBLIC_URL` so resolved public URLs become stable direct links (for example `http://localhost:9000/bullhouse-dev/public/avatar/...`)
+
+> `docker-compose.yml` uses a MinIO-compatible liveness endpoint for RustFS healthcheck. In local testing this can report unhealthy even while basic S3 operations work; verify by listing/putting objects if needed.
+
+---
+
+## Read-only Signer Credentials (recommended for bucket mode)
+
+`UploadModule` creates a separate `SIGNED_URL_STORAGE_MANAGER` **only when both** values are set:
+
+- `STORAGE_BUCKET_READONLY_ACCESS_KEY`
+- `STORAGE_BUCKET_READONLY_SECRET_KEY`
+
+Behavior:
+
+- If both are set: signed URLs for private keys are generated with read-only credentials
+- If either is missing: signing falls back to the primary read-write credentials
+
+This limits blast radius if signing credentials leak: the read-only signer can generate/read URLs, but cannot upload or delete objects.
+
+---
+
+## Startup Bucket Policy
+
+On module init, upload service attempts to apply bucket policy so `public/*` is anonymously readable while non-public keys remain private.
+
+If the bucket is missing, it logs a warning and continues boot (no crash).

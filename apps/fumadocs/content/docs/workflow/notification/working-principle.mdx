@@ -1,0 +1,49 @@
+---
+title: Notification Working Principle
+description: Principle-based behavior of surface-scoped notifications, state transitions, fanout, and suppression.
+---
+
+# Notification Working Principle
+
+## 1. Single Event, Multi-Surface State
+
+A notification event is stored once, with per-surface state in `statusBySurface`.
+
+State model:
+
+- `pending`
+- `delivered`
+- `seen`
+- `read`
+- `archived`
+- `deleted`
+
+## 2. Surface-Scoped Access
+
+Every inbox operation is scoped by one explicit surface.
+
+- `GET /notifications?surface=...`
+- `GET /notifications/unread-count?surface=...`
+- `POST /notifications/:id/read` with body `surface`
+- `POST /notifications/mark-all-read` with body `surface`
+
+## 3. Realtime Fanout with Origin Dedup
+
+Events are broadcast to all sessions in room `notifications:{userId}:{surface}`.
+
+- Event types: `notification:new`, `notification:read`, `notification:read_all`.
+- Origin session ID is propagated.
+- Publisher excludes origin socket to avoid self-duplicate updates.
+
+## 4. Presence-Aware Push Suppression
+
+Producer checks room presence before push dispatch.
+
+- Suppress `web_push` when `web_in_app` presence is active.
+- Suppress `mobile_push` only when mobile presence signal is configured reliable.
+
+## 5. Idempotency and Safety
+
+- `externalRef` ensures dedup-safe persistence.
+- History replay supports reconnect.
+- Document TTL cleanup is handled via MongoDB index on `expiresAt`.

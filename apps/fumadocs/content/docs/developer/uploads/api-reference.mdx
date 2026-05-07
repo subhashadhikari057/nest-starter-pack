@@ -1,0 +1,141 @@
+---
+title: API Reference
+description: Admin and mobile upload endpoints, URL resolution behavior, and frontend usage rules.
+---
+
+# Upload API Reference
+
+Base API prefix is `/api` (`app.setGlobalPrefix("api")`), so routes below are shown as full paths.
+
+All endpoints in this page require `Authorization: Bearer <token>` (`JwtAuthGuard`).
+
+## URL Semantics (applies to upload + signed-url responses)
+
+`relativePath` is the canonical storage key. Persist this value in your DB.
+
+`url` + `expiresAt` depend on storage driver and key visibility:
+
+| Storage/key type | `url` | `expiresAt` |
+|---|---|---|
+| Local driver (no remote bucket) | Relative app path like `/${key}` | `null` |
+| Remote + public key (`public/*`) | Direct public URL | `null` |
+| Remote + private key (`uploads/*`) | Signed URL | Unix ms timestamp |
+
+`expiresAt: null` means the URL does not expire (local path or public URL).
+
+Current backend caveat: with the local driver, the resolver returns `/${key}` for both `uploads/*` and `public/*` keys. In this app only `/uploads/*` is statically served by `AppModule`, so local `public/*` URLs are not directly renderable unless backend static config is extended or bucket mode is used.
+
+### Frontend note
+
+- You can render `data.url` immediately from upload responses.
+- Always store `data.relativePath` and treat it as source of truth.
+- If `expiresAt` is a timestamp and is near/past now, refresh with `GET /api/upload/signed-url/*key` (or mobile equivalent) before rendering/downloading.
+- If `expiresAt` is `null`, `data.url` is stable and does not need refresh.
+
+---
+
+## Admin Endpoints — `/api/upload/*`
+
+### `POST /api/upload`
+
+Upload one file (`multipart/form-data`, field: `file`).
+
+Query params:
+
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `uploadType` | `UploadType` | `image` | Controls storage key prefix (`public/*` vs `uploads/*`) |
+| `optimize` | `boolean` | `true` | Image optimization hint |
+
+Limits: max file size from `UPLOAD_MAX_FILE_SIZE_MB` (default 50 MB).
+
+Response: `ResponseDto<UploadResultDto>` with: `filename`, `originalName`, `mimeType`, `size`, `relativePath`, `url`, `expiresAt`.
+
+### `POST /api/upload/multiple`
+
+Upload up to 10 files (`multipart/form-data`, field: `files`).
+
+Uses the same query params and returns `ResponseDto<UploadResultDto[]>`.
+
+### `GET /api/upload/signed-url/*key`
+
+Resolve a stored key (`relativePath`) to a viewable URL.
+
+Path param: `key` supports slashes (`uploads/image/a.webp`, `public/avatar/b.webp`).
+
+Optional query:
+
+| Param | Type | Notes |
+|---|---|---|
+| `expiresIn` | number (seconds, min 1) | Overrides signed URL TTL for remote private keys |
+
+Response: `ResponseDto<SignedUrlResponseDto>`.
+
+Message behavior from current controller code:
+
+- `"Signed URL generated"` when `expiresAt` is present (private signed URL).
+- `"Local URL resolved"` whenever `expiresAt` is `null`. This includes local-driver URLs and remote public URLs.
+
+### `POST /api/upload/signed-urls`
+
+Batch resolve keys in one request.
+
+Request body:
+
+```json
+{
+  "keys": ["uploads/image/a.webp", "public/avatar/b.webp"],
+  "expiresIn": 3600
+}
+```
+
+Response shape: `ResponseDto<Record<string, { url: string; expiresAt: number | null }>>`.
+
+Per-key behavior mirrors single resolve: local/public => `expiresAt: null`, private => signed URL + expiry timestamp.
+
+Implementation detail: if resolving a specific key fails, that key is returned as `{ "url": "", "expiresAt": null }` and other keys still resolve.
+
+### `GET /api/upload/file/*key`
+
+Backend proxy endpoint that streams file bytes through NestJS (`Cache-Control: private, max-age=3600`).
+
+Use when clients must not talk directly to bucket URLs.
+
+---
+
+## Mobile Endpoints — `/api/mobile/uploads/*`
+
+Mobile routes use the same URL resolution semantics as admin routes and add IP rate limits.
+
+| Endpoint | Limit |
+|---|---|
+| `POST /api/mobile/uploads` | 10 requests / 60 seconds |
+| `GET /api/mobile/uploads/signed-url/*key` | 60 requests / 60 seconds |
+
+### `POST /api/mobile/uploads`
+
+Upload one file (`multipart/form-data`, field: `file`) with fixed 5 MB limit (`mobileMulterOptions`).
+
+Query params:
+
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `uploadType` | `CustomerUploadType` | `image` | Allowed: `avatar`, `image`, `file` |
+| `optimize` | `boolean` | `true` | Image optimization hint |
+
+Returns `ResponseDto<UploadResultDto>` (same shape as admin).
+
+### `GET /api/mobile/uploads/signed-url/*key`
+
+Same behavior and response semantics as admin signed-url endpoint, with mobile rate limiting.
+
+---
+
+## Error Responses
+
+| Status | When |
+|---|---|
+| `400` | Missing file, invalid `uploadType`, invalid `expiresIn`, or invalid local file key |
+| `413` | File too large (Multer limits) |
+| `429` | Mobile IP throttling exceeded |
+| `502` | Remote storage upload/sign/download failure |

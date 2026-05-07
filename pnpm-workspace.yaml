@@ -1,0 +1,24 @@
+packages:
+  - apps/*
+  - packages/*
+
+catalog:
+  '@types/node': ^22.19.3
+  '@types/react': ^19.1.8
+  dotenv: ^17.2.2
+  tsdown: ^0.15.5
+  typescript: 5.9.3
+  uuid: ^13.0.0
+  zod: ^3.24.1
+
+onlyBuiltDependencies:
+  - '@firebase/util'
+  - '@nestjs/core'
+  - '@scarf/scarf'
+  - '@swc/core'
+  - bcrypt
+  - esbuild
+  - msgpackr-extract
+  - protobufjs
+  - sharp
+  - unrs-resolver

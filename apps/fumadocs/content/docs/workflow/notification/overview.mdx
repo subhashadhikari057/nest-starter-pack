@@ -1,0 +1,51 @@
+---
+title: Notification Workflow Overview
+description: End-to-end workflow for notification creation, delivery, and user interaction across web and mobile surfaces.
+---
+
+# Notification Workflow Overview
+
+This workflow explains how one notification event moves from producer to user inbox with surface isolation.
+
+## Surfaces
+
+Supported surfaces:
+
+- `web_in_app`
+- `mobile_in_app`
+- `web_push`
+- `mobile_push`
+- `email`
+- `sms`
+
+## Core Flow
+
+```mermaid
+sequenceDiagram
+  participant Domain as Domain Module
+  participant Producer as Notifications Processor
+  participant Mongo as MongoDB
+  participant RT as Realtime Service
+  participant Client as Web/Mobile Client
+
+  Domain->>Producer: enqueue/send notification (targets + payload)
+  Producer->>Mongo: create single notification document
+  Producer->>RT: emit notification:new per in-app surface
+  RT-->>Client: notification:new (surface room)
+  Client->>Domain: mark read (surface required)
+  Domain->>Mongo: update statusBySurface.<surface>
+  Domain->>RT: emit notification:read / notification:read_all
+```
+
+## User Interaction Rules
+
+- Inbox APIs require `surface` for list, unread count, read, and mark-all-read.
+- Read state is isolated per surface.
+- Marking read on `web_in_app` does not change `mobile_in_app` unless explicitly requested by product logic.
+- Badge semantics are read-based.
+
+## Reconnect Behavior
+
+- Client rejoins room via `notification:join` or `notification:sync`.
+- Server replays missed events from event history.
+- Client can refetch inbox when a replay gap is detected.

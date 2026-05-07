@@ -1,0 +1,744 @@
+---
+title: API & Service Development Playbook
+description: End-to-end guidance for building, deploying, and operating the NestJS APIs in production.
+---
+
+# API & Service Development Playbook
+
+This playbook teaches new developers how to build efficient, production-ready APIs in `apps/api` while staying aligned with our existing patterns. Refer to it whenever you add endpoints, services, or supporting infrastructure. Consistency keeps the codebase predictable for humans and AI tools alike.
+
+---
+
+## 1. Architecture Snapshot
+
+- **NestJS modules** – Each feature (auth, users, upload, notifications) lives in `src/modules/<feature>`. Modules own their controller, service, DTOs, guards, and helpers.
+- **Module composition contract** – Use module types intentionally:
+  - leaf modules own controllers/services/providers for a concrete API surface.
+  - aggregate modules only compose multiple related leaf modules.
+  - do not create single-child pass-through wrappers.
+  - Swagger `createDocument(..., { include })` should prefer leaf modules that declare controllers.
+- **Global concerns** – `AllExceptionsFilter` and `LoggingInterceptor` are registered in `AppModule`, guaranteeing uniform error responses and request logging.
+- **Shared packages** – Reuse workspace packages (`@bullhouse/db`, `@bullhouse/email`, `@bullhouse/storage`, `@bullhouse/otp`) for infrastructure concerns instead of reinventing them.
+- **Database access** – `DatabaseModule` exports the `DATABASE` injection token so services can access Drizzle with full type inference.
+
+Keep this mental map handy when planning new functionality.
+
+---
+
+## 2. Development Workflow
+
+1. **Plan the feature** – Define the user-facing behavior, data model changes, and required permissions.
+2. **Scaffold module pieces** – Create DTOs, the service, and controller endpoints inside `src/modules/<feature>`.
+3. **Validate inputs early** – Use `class-validator` on DTOs and `ValidationPipe` (already applied globally) to guard controller inputs.
+4. **Write business logic in services** – Controllers stay thin; services encapsulate rules, database queries, and side effects.
+5. **Cover with tests** – Add unit specs for controllers/services and E2E coverage if the feature is critical.
+6. **Document env/permission changes** – Update `docs/BACKEND_GUIDELINES.md` or this playbook when new configuration knobs appear.
+
+---
+
+## 3. Designing Controllers (HTTP Layer)
+
+Follow this checklist for every endpoint:
+
+- **Route declaration** – Use `@Controller("resource")` and idiomatic HTTP verbs (`@Get`, `@Post`, `@Patch`, `@Delete`).
+- **Mobile routing ownership** – Keep feature controllers on base resource paths (for example, `@Controller("products")`, not `@Controller("mobile/products")`). Channel prefixes like `/mobile` must be owned centrally by composition routing in `mobile.module.ts` via `RouterModule.register(...)`.
+- **Auth & RBAC** – Protect routes with `@UseGuards(JwtAuthGuard, RoleGuard)` and annotate permissions via `@Permissions("Resource_ACTION")`. This mirrors `UsersController`.
+(### Permission Module Usage Contract (AI + Developer)
+
+Source of truth: `bullhouse-backend/apps/api/src/common/authorization/permissions.types.ts`
+
+1. Add new permission module names to `MODULES` (e.g., `"Categories"`, `"Tags"`, `"Featured"`).
+2. Keep permission codes in `Module_ACTION` format only.
+3. Use typed constants in controllers:
+   - `"Categories_READ";`
+   - Do **not** use `as unknown as PermissionCode`.
+4. Protect admin endpoints with:
+   - `@UseGuards(JwtAuthGuard, RoleGuard)`
+   - `@Permissions(CATEGORIES_READ)` (or CREATE/UPDATE/DELETE)
+5. For permission seeding, use `buildModulePermissions()` from `permissions.types.ts` instead of hardcoding arrays.
+6. Mobile public browse endpoints should not get admin permission guards unless explicitly required.
+)
+- **DTO binding** – Bind DTOs via `@Body()`, `@Param()`, `@Query()` so Nest's validation pipe can sanitize data automatically. **NEVER use `@ApiQuery`, `@ApiParam`, or `@ApiBody` decorators directly**—let DTOs define these (see Section 5 for comprehensive DTO patterns).
+- **Swagger metadata** – Add `@ApiTags`, `@ApiOperation`, and use `@ApiResponseDto` or `@ApiPaginatedResponseDto` decorators (from `@/common/dto/response-dto`) instead of manually defining response schemas.
+- **Response shape** – Return DTOs wrapped in `ResponseDto` when including metadata (pagination, counts). Never leak database entities directly.
+- **Context extraction** – When you need request context (IP, user-agent), extract it in the controller and pass a plain object to the service (see `AuthController.register`).
+
+Keep controllers declarative and defer everything else to services. For detailed DTO patterns, validation, and examples, see **Section 5**.
+
+---
+
+## 4. Crafting Services (Business Layer)
+
+Services should be deterministic, composable, and easy to test:
+
+- **Dependency injection** – Inject only what you need (e.g., `@Inject(DATABASE) private readonly db: Database`, helper services like `EmailNotificationService`, config values).
+- **Database queries** – Use Drizzle’s fluent API (`select`, `insert`, `update`, `transaction`). Create small helper methods (`findUserByEmail`, `getRoleIdOrThrow`) to avoid duplicating query fragments.
+- **Transactions** – Wrap multi-step operations in `this.db.transaction` to keep data consistent (`AuthService.register`, `UsersService.update` are reference implementations).
+- **Domain errors** – Throw Nest exceptions (`ConflictException`, `BadRequestException`, `NotFoundException`, etc.). The global filter formats them, so you only describe the issue.
+- **Background work** – Fire-and-forget emails or notifications using `void this.emailService.send(...)` when non-blocking or `await` them when they affect response timing.
+- **Utility extraction** – If logic is reusable across modules, move it to `src/common` or `src/utils` (e.g., `CacheKeyUtil` cache key builders, multer config).
+
+Document complex flows with short comments—it saves time for the next developer and helps AI agents understand intent.
+
+---
+
+## 5. DTO, Validation, and Mapping Rules
+
+### 5.1 DTO Naming Conventions
+
+Keep all DTOs in `src/modules/<feature>/dto/` following these conventions:
+
+- **Request DTOs (Body)** – `Create<Resource>Dto`, `Update<Resource>Dto`
+- **Request DTOs (Query)** – `Fetch<Resource>Dto`, `List<Resource>QueryDto`
+- **Request DTOs (Params)** – `<Resource>ParamsDto` (if complex path params are needed)
+- **Response DTOs** – `<Resource>ResponseDto`, `<Resource>ListItemDto`
+
+### 5.2 Request DTO Best Practices
+
+**ALWAYS use DTOs for all inputs** – Never use `@ApiQuery`, `@ApiParam`, or `@ApiBody` decorators directly in controllers. Let DTOs define the contract.
+
+#### Query Parameters (✅ CORRECT WAY)
+
+```typescript
+// ✅ dto/fetch-user.dto.ts
+export class FetchUserDto extends QueryDto {
+  @ApiProperty({ required: false, type: Number })
+  @IsInt()
+  @Transform(({ value }) => (value === "" ? undefined : Number(value)))
+  @IsOptional()
+  public readonly roleId?: number;
+
+  @ApiProperty({ required: false, enum: ["active", "inactive"] })
+  @IsEnum(["active", "inactive"])
+  @IsOptional()
+  public readonly status?: string;
+}
+
+// ✅ Controller usage
+@Get()
+@ApiOperation({ summary: "List all users" })
+@ApiPaginatedResponseDto(UserResponseDto)
+@Permissions("Users_READ")
+async findAll(@Query() query: FetchUserDto) {
+  const result = await this.usersService.findAll(query);
+  return new ResponseDto<UserResponseDto[]>("Users fetched", result.users, {
+    count: result.totalCount,
+    page: result.page,
+    size: result.size,
+  });
+}
+```
+
+#### Query Parameters (❌ WRONG WAY – DON'T DO THIS)
+
+```typescript
+// ❌ NEVER manually add @ApiQuery decorators
+@Get()
+@ApiQuery({ name: "page", required: false, type: Number })
+@ApiQuery({ name: "limit", required: false, type: Number })
+@ApiQuery({ name: "status", required: false, enum: ["active", "inactive"] })
+@ApiQuery({ name: "roleId", required: false, type: String })
+// ... dozens more @ApiQuery decorators
+async findAll(@Query() query: SomeDto) { // Still cluttered and duplicates logic
+  // ...
+}
+```
+
+**Why DTOs are better:**
+- Single source of truth for validation, transformation, and documentation
+- Automatic Swagger generation from DTO decorators
+- Cleaner controller code
+- Type-safe across your application
+- Easy to test and maintain
+
+#### Body Parameters
+
+```typescript
+// ✅ dto/create-user.dto.ts
+export class CreateUserDto {
+  @ApiProperty()
+  @IsString()
+  name!: string;
+
+  @ApiProperty()
+  @IsEmail()
+  email!: string;
+
+  @ApiProperty({ minLength: 8 })
+  @IsString()
+  @MinLength(8)
+  password!: string;
+
+  @ApiPropertyOptional({ enum: roleEnum.enumValues })
+  @IsOptional()
+  @IsIn(roleEnum.enumValues)
+  role?: RoleName;
+}
+
+// ✅ Controller usage
+@Post()
+@ApiOperation({ summary: "Create a new user" })
+@ApiResponseDto(UserResponseDto)
+@Permissions("Users_CREATE")
+async create(@Body() createUserDto: CreateUserDto) {
+  const user = await this.usersService.create(createUserDto);
+  return new ResponseDto<UserResponseDto>("User created", user);
+}
+```
+
+#### Path Parameters
+
+For new modules that use serial IDs, use `ParseIntPipe` for simple `:id` params:
+
+```typescript
+@Get(":id")
+async findOne(@Param("id", ParseIntPipe) id: number) {
+  // ...
+}
+```
+
+Use `ParseUUIDPipe` only for existing UUID-based resources that still require it (for example, current auth-related tables/routes):
+
+```typescript
+@Get(":id")
+async findOne(@Param("id", ParseUUIDPipe) id: string) {
+  // ...
+}
+```
+
+For complex path parameters, create a dedicated DTO:
+
+```typescript
+// dto/resource-params.dto.ts
+export class ResourceParamsDto {
+  @ApiProperty()
+  @IsUUID()
+  resourceId!: string;
+
+  @ApiProperty()
+  @IsUUID()
+  subResourceId!: string;
+}
+
+// Controller usage
+@Get(":resourceId/items/:subResourceId")
+async findSubResource(@Param() params: ResourceParamsDto) {
+  // ...
+}
+```
+
+### 5.3 Response DTO Best Practices
+
+**Use response DTOs with custom decorators** – Never manually define response schemas in `@ApiOkResponse`.
+
+#### Single Resource Response
+
+```typescript
+// ✅ dto/user-response.dto.ts
+export class UserResponseDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty()
+  email!: string;
+
+  @ApiProperty({ type: RoleDto, nullable: true })
+  role!: RoleDto | null;
+
+  @ApiProperty()
+  createdAt!: Date;
+
+  @ApiProperty()
+  updatedAt!: Date;
+}
+
+// ✅ Controller usage
+@Get(":id")
+@ApiOperation({ summary: "Get a single user" })
+@ApiResponseDto(UserResponseDto)
+async findOne(@Param("id", ParseUUIDPipe) id: string) {
+  const user = await this.usersService.findById(id);
+  return new ResponseDto<UserResponseDto>("User fetched", user);
+}
+```
+
+#### Paginated List Response
+
+```typescript
+// ✅ Controller usage
+@Get()
+@ApiOperation({ summary: "List all users" })
+@ApiPaginatedResponseDto(UserResponseDto)
+async findAll(@Query() query: FetchUserDto) {
+  const { users, totalCount, page, size } = await this.usersService.findAll(query);
+  return new ResponseDto<UserResponseDto[]>("Users fetched", users, {
+    count: totalCount,
+    page,
+    size,
+  });
+}
+```
+
+#### Response Schema (❌ WRONG WAY – DON'T DO THIS)
+
+```typescript
+// ❌ NEVER manually define response schemas
+@Get()
+@ApiOkResponse({
+  schema: {
+    type: "object",
+    properties: {
+      message: { type: "string" },
+      result: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            // ... dozens more properties
+          },
+        },
+      },
+      count: { type: "number" },
+      currentPage: { type: "number" },
+      totalPage: { type: "number" },
+    },
+  },
+})
+async findAll() {
+  // ...
+}
+```
+
+### 5.4 Base DTO Classes
+
+Extend base DTOs for common patterns:
+
+#### QueryDto (for paginated lists)
+
+```typescript
+// Extend QueryDto for list endpoints
+export class FetchUserDto extends QueryDto {
+  // QueryDto already provides: pagination, page, size, sort, order, search
+  
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsInt()
+  @Transform(({ value }) => Number(value))
+  roleId?: number;
+}
+```
+
+The `QueryDto` base class includes:
+- `pagination: boolean` – Enable/disable pagination
+- `page: number` – Page number (default: 1)
+- `size: number` – Page size (default: 20)
+- `sort: string` – Sort field (default: "updatedAt")
+- `order: "asc" | "desc"` – Sort direction (default: "desc")
+- `search: string` – Search query
+
+### 5.5 DTO Validation & Transformation
+
+- **Validation** – Use `class-validator` decorators (`@IsString`, `@IsEmail`, `@IsUUID`, `@IsInt`, `@Min`, `@Max`, `@IsEnum`, etc.)
+- **Transformation** – Use `@Transform()` for type coercion (query params arrive as strings)
+- **Optional fields** – Always pair `@IsOptional()` with other validators
+- **Enums** – Use `@IsEnum()` or `@IsIn()` with actual enum values, not hardcoded arrays
+
+```typescript
+// ✅ Transform string to number for query params
+@ApiProperty({ required: false, type: Number })
+@IsInt()
+@Transform(({ value }) => (value === "" ? undefined : Number(value)))
+@IsOptional()
+public readonly roleId?: number;
+
+// ✅ Transform string to boolean
+@ApiProperty({ required: false, type: Boolean })
+@IsBoolean()
+@Transform(({ value }) => value === "true")
+@IsOptional()
+public readonly isActive?: boolean;
+```
+
+### 5.6 Response Mapping in Services
+
+Map raw database rows to response DTOs **inside services**, not controllers:
+
+```typescript
+// ✅ Service layer
+private mapToResponse(user: User & { role: Role | null }): UserResponseDto {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    emailVerified: user.emailVerified,
+    phone: user.phone,
+    phoneVerified: user.phoneVerified,
+    roleId: user.roleId,
+    role: user.role ? {
+      id: user.role.id,
+      name: user.role.name,
+    } : null,
+    image: user.image,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  };
+}
+```
+
+This is the right place to:
+- Combine data from joins
+- Calculate derived fields
+- Apply privacy filters (e.g., never expose passwords)
+- Format dates or enums
+
+### 5.7 DTO Checklist
+
+Before merging any endpoint, verify:
+
+- [ ] All query parameters defined in a DTO extending `QueryDto` (if pagination needed)
+- [ ] All body parameters defined in a dedicated DTO with validation decorators
+- [ ] All response shapes defined in a response DTO with `@ApiProperty` decorators
+- [ ] Request DTO properties include accurate Swagger `example` metadata (`@ApiProperty` / `@ApiPropertyOptional`)
+- [ ] Response DTO properties include accurate Swagger `example` metadata (`@ApiProperty` / `@ApiPropertyOptional`)
+- [ ] Controllers use `@ApiResponseDto` or `@ApiPaginatedResponseDto`, never manual schemas
+- [ ] No `@ApiQuery`, `@ApiParam`, `@ApiBody`, or manual `@ApiOkResponse({ schema: {...} })` in controllers
+- [ ] DTOs located in `src/modules/<feature>/dto/`
+- [ ] Service layer maps database entities to response DTOs
+
+**Remember:** DTOs are the contract. Controllers wire them together. Services implement the logic.
+
+### 5.8 Swagger Example Standards (Universal)
+
+- Add realistic `example` values to request and response DTO decorators for every API module (admin, customer, mobile).
+- Examples must match actual types, enums, nullable behavior, and mapped response shape in code.
+- Swagger example additions are documentation-only changes and must not alter business logic, service behavior, query behavior, or response structure.
+
+---
+
+## 6. Pagination Utility Usage
+
+Use `PaginationUtil` from `@/common/utils/pagination.util` to handle pagination logic cleanly across services and controllers. This utility eliminates code repetition and provides a consistent way to handle paginated vs non-paginated queries.
+
+### 6.1 Default Normalization Contract
+
+For standard list endpoints, normalize pagination inputs through `PaginationUtil.normalize(...)` and rely on centralized defaults.
+
+```typescript
+const normalized = PaginationUtil.normalize({
+  pagination: query.pagination,
+  page: query.page,
+  size: query.size,
+});
+```
+
+Centralized defaults applied by the utility:
+- `defaultPagination = true`
+- `defaultPage = PaginationUtil.DEFAULT_PAGE` (`1`)
+- `defaultSize = PaginationUtil.DEFAULT_SIZE` (`20`)
+- `maxSize = PaginationUtil.MAX_PAGE_SIZE` (`100`)
+
+Use `defaultPage` and `defaultSize` overrides only when an endpoint intentionally has non-standard pagination behavior (for example, a featured list with a custom default size).
+
+### 6.2 Service Layer Implementation
+
+**Use `PaginationUtil.getDrizzleParams()`** to generate Drizzle-compatible `limit` and `offset` parameters:
+
+```typescript
+// ✅ users.service.ts
+import { PaginationUtil } from "@/common/utils/pagination.util";
+
+async findAll(query: FetchUserDto) {
+  const { page, size, sort, order, search, pagination } = query;
+
+  // Build where conditions
+  const whereConditions = [];
+  if (search) {
+    whereConditions.push(
+      or(
+        ilike(user.name, `%${search}%`),
+        ilike(user.email, `%${search}%`),
+      ),
+    );
+  }
+  const whereClause = whereConditions.length > 0 ? and(...whereConditions) : undefined;
+
+  // Determine sort order
+  const sortColumn = sort in user ? user[sort] : user.updatedAt;
+  const orderByClause = order === "asc" ? asc(sortColumn) : desc(sortColumn);
+
+  // Get pagination params (returns undefined if pagination=false)
+  const paginationParams = PaginationUtil.getDrizzleParams({
+    pagination,
+    page,
+    size,
+  });
+
+  // Fetch data with optional pagination
+  const users = await this.db.query.user.findMany({
+    where: whereClause,
+    orderBy: orderByClause,
+    ...paginationParams, // Spreads { limit, offset } or nothing
+  });
+
+  // Get total count only if pagination is enabled
+  let totalCount = users.length;
+  if (pagination) {
+    const [{ count: dbCount }] = await this.db
+      .select({ count: count() })
+      .from(user)
+      .where(whereClause);
+    totalCount = dbCount;
+  }
+
+  return { users, totalCount, page, size, pagination };
+}
+```
+
+**Key benefits:**
+- Automatically handles `pagination=false` by returning `undefined` (spreads nothing)
+- No manual offset calculation (`(page - 1) * size`)
+- Skips expensive count queries when pagination is disabled
+- Clean, readable code
+
+### 6.3 Controller Layer Implementation
+
+**Use the `pagination` flag** from the service to conditionally include pagination metadata:
+
+```typescript
+// ✅ users.controller.ts
+@Get()
+@ApiOperation({ summary: "List all users" })
+@ApiPaginatedResponseDto(UserResponseDto)
+@Permissions("Users_READ")
+async findAll(@Query() query: FetchUserDto) {
+  const { users, totalCount, page, size, pagination } =
+    await this.usersService.findAll(query);
+  
+  // Clean one-liner: only include pagination metadata when enabled
+  return new ResponseDto<UserResponseDto[]>(
+    "Users fetched successfully",
+    users,
+    pagination && { count: totalCount as number, page, size },
+  );
+}
+```
+
+**Response examples:**
+
+With `pagination=true` (default):
+```json
+{
+  "message": "Users fetched successfully",
+  "data": [...],
+  "count": 100,
+  "currentPage": 1,
+  "totalPage": 10
+}
+```
+
+With `pagination=false`:
+```json
+{
+  "message": "Users fetched successfully",
+  "data": [...]
+}
+```
+
+### 6.4 Advanced Patterns
+
+#### Conditional Pagination Based on Business Logic
+
+```typescript
+// Service with conditional pagination
+async findAll(query: FetchUserDto) {
+  // Example: Always paginate for non-admin users
+  const shouldPaginate = query.pagination && !isAdmin(currentUser);
+  
+  const paginationParams = PaginationUtil.getDrizzleParams({
+    pagination: shouldPaginate,
+    page: query.page,
+    size: query.size,
+  });
+
+  const data = await this.db.query.resource.findMany({
+    ...paginationParams,
+  });
+
+  return { data, pagination: shouldPaginate };
+}
+```
+
+#### Reusing Metadata Builder
+
+```typescript
+// Service helper method
+private buildResponseMetadata(totalCount: number, page: number, size: number) {
+  return PaginationUtil.buildMetadata(totalCount, page, size);
+}
+
+// Usage in controller
+return new ResponseDto(
+  "Success",
+  data,
+  pagination && this.buildResponseMetadata(totalCount, page, size),
+);
+```
+
+### 6.5 Migration from Manual Pagination
+
+**Before (❌ Manual, Repetitive):**
+```typescript
+// Service - repetitive offset calculation
+const usersData = await this.db.query.user.findMany({
+  where: whereClause,
+  ...(pagination && { 
+    limit: pageSize, 
+    offset: (page - 1) * pageSize 
+  }),
+});
+
+// Controller - verbose ternary
+return new ResponseDto<UserResponseDto[]>(
+  "Users fetched successfully",
+  users,
+  pagination
+    ? {
+        count: totalCount as number,
+        page,
+        size,
+      }
+    : undefined,
+);
+```
+
+**After (✅ Clean, DRY):**
+```typescript
+// Service - utility handles calculation
+const paginationParams = PaginationUtil.getDrizzleParams({
+  pagination,
+  page,
+  size,
+});
+
+const usersData = await this.db.query.user.findMany({
+  where: whereClause,
+  ...paginationParams,
+});
+
+// Controller - clean one-liner
+return new ResponseDto<UserResponseDto[]>(
+  "Users fetched successfully",
+  users,
+  pagination && { count: totalCount as number, page, size },
+);
+```
+
+### 6.6 PaginationUtil API Reference
+
+```typescript
+// Get Drizzle-compatible pagination params
+PaginationUtil.getDrizzleParams({
+  pagination: boolean,
+  page: number,
+  size: number,
+}): { limit: number; offset: number } | undefined
+
+// Build response metadata
+PaginationUtil.buildMetadata(
+  count: number,
+  page: number,
+  size: number,
+): { count: number; page: number; size: number }
+
+// Check if pagination is enabled
+PaginationUtil.isPaginationEnabled({
+  pagination: boolean,
+  page: number,
+  size: number,
+}): boolean
+```
+
+---
+
+## 7. Database Interaction Standards
+
+- **Import tables from Workspace** – `import { user, account } from "@bullhouse/db"` to leverage generated types (`typeof user.$inferSelect`).
+- **Query helpers** – Compose complex `where` clauses with Drizzle operators (`eq`, `and`, `desc`).
+- **Timestamps** – Set `createdAt` and `updatedAt` explicitly in services to guarantee consistency, even if the DB has defaults.
+- **IDs (new modules)** – Use `serial`/`integer` IDs for new domain tables and foreign keys.
+- **Primary key auto-generated by DB -> `serial`**
+- **Referencing or storing numeric ID values -> `integer`**
+- **Auth exception** – Do not change existing auth ID strategy in routine feature work; auth IDs remain as-is unless an explicit auth migration subphase is planned.
+- **Soft deletes** – Not supported by default. If a feature needs them, add `deletedAt` fields and ensure queries filter them out, then document the change.
+
+---
+
+## 8. Error Handling, Logging, and Observability
+
+- **Throw typed exceptions** – `throw new ConflictException("message")` instead of returning error objects. The global filter logs and serializes them.
+- **Leverage Logger** – `const logger = new Logger(ServiceName)` to log key events (OTP sent, upload failed). This integrates with Nest’s logging system and respects log levels.
+- **Avoid console.log** – Except in scripts/tests. Use `Logger` or structured responses.
+- **Sensitive data** – Never log secrets, tokens, or passwords. Mask identifiers when necessary.
+
+---
+
+## 9. Testing Expectations
+
+- **Unit tests** – Each controller and service should have specs near the implementation. Mimic `auth.controller.spec.ts`: create typed mocks, assert arguments, and cover edge cases.
+- **Mocking strategy** – Mock external services (email, storage, OTP) by implementing only the methods you call. For the database, mock `select`, `insert`, etc., or extract logic to pure functions that can be tested without the DB.
+- **E2E tests** – For full-stack flows, add specs under `apps/api/test`. Spin up the Nest app, hit endpoints with `supertest`, and assert on HTTP status and payload.
+- **Coverage** – Use `pnpm --filter api test:cov` before merging substantial features to ensure new paths are exercised.
+
+Testing is non-negotiable. Even minimal coverage (happy path + failure) catches regressions early.
+
+---
+
+## 10. Performance & Efficiency Tips
+
+- **Bulk operations** – Prefer batch inserts/updates within transactions instead of looping and issuing multiple queries.
+- **Query projections** – Select only the fields you need (see `userWithRoleSelection`) to reduce payload size.
+- **Async boundaries** – Await only when necessary. For non-critical side effects (e.g., sending a welcome email), use `void this.emailService.send(...)` and log failures asynchronously.
+- **Caching** – Introduce caching only when profiling shows a bottleneck. Wrap caches behind services so they can be swapped or bypassed.
+- **Cache key standard** – Build query/list Redis keys with `CacheKeyUtil.build(prefix, segments)` only. Do not use hash/base64/base64url cache keys.
+- **Segment standard** – Normalize segment values with `CacheKeyUtil.segment(value)` via `build`, and keep segment order deterministic (explicit tuple order, never object-key iteration).
+- **Invalidation standard** – Keep prefixes stable and invalidate with `invalidatePattern(prefix*)` for list keyspaces.
+- **Uploads** – Stream files through Multer + `StorageManager`; avoid loading large buffers into memory.
+
+---
+
+## 11. Pull Request Checklist
+
+1. [ ] Controller routes documented with Swagger decorators.
+2. [ ] DTOs validate every external input.
+3. [ ] Feature controllers use base paths; channel prefixes (like `/mobile`) are owned by module routing (`RouterModule.register` in `mobile.module.ts`).
+4. [ ] Request and response DTOs include accurate Swagger `example` metadata.
+5. [ ] Services handle database operations atomically when needed.
+6. [ ] Permissions/guards applied to new endpoints.
+7. [ ] Errors use Nest exceptions with clear messages.
+8. [ ] Unit tests updated/added; e2e tests added if endpoint-visible behavior changed.
+9. [ ] Env variables registered in `src/config/env.validation.ts` (if applicable).
+10. [ ] Docs updated (`BACKEND_GUIDELINES.md`, this playbook, or README) to reflect new capabilities.
+
+Print this list before opening a PR—it keeps reviews fast and predictable.
+
+---
+
+## 12. Appendix: Quick References
+
+- **Start dev server** – `pnpm --filter api dev`
+- **Run unit tests** – `pnpm --filter api test`
+- **Run e2e tests** – `pnpm --filter api test:e2e`
+- **Format & lint** – `pnpm --filter api check`
+- **Type check** – `pnpm --filter api check-types`
+- **Generate JWT keys** – `pnpm --filter api generate:jwt-keys`
+
+When unsure, examine `src/modules/auth` and `src/modules/users`—they showcase full-stack patterns (DTO validation → guard → controller → service → database → response).
+
+---
+
+By following this playbook you ensure every API addition feels native to the codebase, shortens onboarding time, and enables AI tooling to reason about the project with minimal guesswork. Keep it updated as patterns evolve.

@@ -1,0 +1,33 @@
+{
+	"name": "@bullhouse/mongodb",
+	"version": "0.0.0",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.js"
+		},
+		"./*": {
+			"types": "./dist/*.d.ts",
+			"import": "./dist/*.js",
+			"require": "./dist/*.js"
+		}
+	},
+	"scripts": {
+		"build": "tsdown --no-watch",
+		"dev": "tsdown",
+		"check": "tsc --noEmit",
+		"lint": "biome check ."
+	},
+	"dependencies": {
+		"mongoose": "^9.4.1"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"tsdown": "catalog:",
+		"typescript": "catalog:"
+	}
+}

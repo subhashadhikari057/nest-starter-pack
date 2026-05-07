@@ -1,0 +1,117 @@
+---
+title: Database Setup for NestJS API
+description: This guide explains how to set up and use Drizzle ORM with PostgreSQL in your NestJS API.
+---
+
+# Database Setup for NestJS API
+
+This guide explains how to set up and use Drizzle ORM with PostgreSQL in your NestJS API.
+
+## Environment Variables
+
+Create a `.env` file in the `apps/api` directory with the following variables:
+
+```
+env
+# Database Configuration
+DATABASE_URL=postgresql://user:password@localhost:5432/database_name
+
+# Application Port
+PORT=3003
+
+# CORS Configuration (optional)
+CORS_ORIGIN=http://localhost:3000
+```
+
+## Starting the Database
+
+From the monorepo root, run:
+
+```bash
+# Start PostgreSQL with Docker
+pnpm db:start
+
+# Or watch logs
+pnpm db:watch
+```
+
+## Database Migrations
+
+```bash
+# Generate migrations from schema changes
+pnpm db:generate
+
+# Push schema changes to database (development)
+pnpm db:push
+
+# Run migrations (production)
+pnpm db:migrate
+
+# Open Drizzle Studio (database GUI)
+pnpm db:studio
+```
+
+## Using the Database in Services
+
+The database is available through dependency injection:
+
+```typescript
+import { Inject, Injectable } from "@nestjs/common";
+import { eq } from "drizzle-orm";
+import { user } from "@bullhouse/db";
+import { DATABASE, type Database } from "../../database/database.module";
+
+@Injectable()
+export class MyService {
+  constructor(@Inject(DATABASE) private readonly db: Database) {}
+
+  async findUser(id: string) {
+    const [foundUser] = await this.db
+      .select()
+      .from(user)
+      .where(eq(user.id, id));
+
+    return foundUser;
+  }
+}
+```
+
+## Available Tables
+
+- `user` - User accounts
+- `session` - User sessions
+- `account` - OAuth accounts
+- `verification` - Email/phone verification tokens
+
+## API Documentation
+
+Once the server is running, access Swagger documentation at:
+
+```
+http://localhost:3003/api/api-docs
+```
+
+## Example Usage
+
+### Create a User
+
+```bash
+curl -X POST http://localhost:3003/api/v2/user \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "John Doe",
+    "email": "john@example.com"
+  }'
+```
+
+### Get All Users
+
+```bash
+curl http://localhost:3003/api/v2/user
+```
+
+### Get User by ID
+
+```bash
+curl http://localhost:3003/api/v2/user/{user-id}
+```

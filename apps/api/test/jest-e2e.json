@@ -1,0 +1,14 @@
+{
+	"moduleFileExtensions": ["js", "json", "ts"],
+	"rootDir": ".",
+	"testEnvironment": "node",
+	"testRegex": ".e2e-spec.ts$",
+	"setupFiles": ["<rootDir>/jest.setup-env.ts"],
+	"transform": {
+		"^.+\\.(t|j)s$": "ts-jest"
+	},
+	"moduleNameMapper": {
+		"^@/(.*)$": "<rootDir>/../src/$1",
+		"^uuid$": "<rootDir>/../src/__mocks__/uuid.ts"
+	}
+}

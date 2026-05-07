@@ -1,0 +1,34 @@
+{
+	"$schema": "https://json.schemastore.org/tsconfig",
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"lib": ["ESNext"],
+		"verbatimModuleSyntax": true,
+		"strict": true,
+		"skipLibCheck": true,
+		"resolveJsonModule": true,
+		"allowSyntheticDefaultImports": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"isolatedModules": true,
+		"noUncheckedIndexedAccess": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noFallthroughCasesInSwitch": true,
+		"types": ["node"],
+		"baseUrl": ".",
+		"paths": {
+			"@bullhouse/api-client": ["packages/api-client/src/index.ts"],
+			"@bullhouse/api-types": ["packages/api-types/src/index.ts"],
+			"@bullhouse/api-types/*": ["packages/api-types/src/*"],
+			"@bullhouse/firebase": ["packages/firebase/src/index.ts"],
+			"@bullhouse/jobs": ["packages/jobs/src/index.ts"],
+			"@bullhouse/realtime-client": ["packages/realtime-client/src/index.ts"],
+			"@bullhouse/realtime-core": ["packages/realtime-core/src/index.ts"],
+			"@bullhouse/mongodb": ["packages/mongodb/src/index.ts"],
+			"@bullhouse/redis": ["packages/redis/src/index.ts"]
+		}
+	}
+}

@@ -1,0 +1,180 @@
+---
+title: Frontend Integration
+description: Practical guide for storing upload keys, rendering URLs, and refreshing private signed URLs in frontend apps.
+---
+
+# Frontend Integration
+
+> Audience: frontend, backend
+> Scope: `apps/api/src/modules/upload/upload.service.ts`, `upload.controller.ts`, `mobile-upload.controller.ts`, `apps/api/src/common/services/storage-url-resolver.service.ts`
+
+---
+
+## The canonical rule
+
+Always persist **`relativePath`** as your canonical file reference.
+
+- `relativePath` is the storage key (example: `public/avatar/a.webp`, `uploads/file/report.pdf`)
+- `url` is a view URL for *now*
+- `expiresAt` tells you whether that URL is permanent or expiring
+
+```ts
+// ✅ Persist this
+record.thumbnailKey = upload.data.relativePath;
+
+// ❌ Do not persist this as canonical state
+record.thumbnailUrl = upload.data.url;
+```
+
+`UploadService.mapUploadResult()` always returns `relativePath` plus a resolved `url`/`expiresAt` pair, so frontend can render immediately after upload.
+
+---
+
+## Public vs private behavior
+
+| Key prefix | Example key | URL behavior | `expiresAt` |
+|---|---|---|---|
+| `public/` | `public/avatar/abc.webp` | Direct URL, stable | `null` |
+| `uploads/` | `uploads/image/abc.webp` | Signed URL, expires | timestamp (ms) |
+
+`StorageUrlResolver.resolve()` behavior:
+
+- **public key** → direct URL, `expiresAt: null`
+- **private key** → pre-signed URL, `expiresAt` timestamp
+- **local driver** (`STORAGE_DRIVER=local`) → app-relative path like `/${key}`, `expiresAt: null`
+
+Current backend caveat: `AppModule` only serves `/uploads/*` statically. If a local upload returns a `public/*` key, the resolver will still return `/public/...`, but that path is not directly served by the current Nest config.
+
+---
+
+## Immediate render after upload
+
+Use the upload response URL immediately, but store only the key for future use.
+
+```ts
+const res = await api.post("/api/upload?uploadType=image", formData);
+const file = res.data.data;
+
+// Persist only canonical key
+await saveProfile({ avatarKey: file.relativePath });
+
+// Use immediately for preview
+setPreviewUrl(file.url); // may be signed or permanent
+```
+
+---
+
+## Resolve later from stored keys
+
+When rendering existing records, resolve stored keys back to URLs.
+
+### Single key
+
+```ts
+async function resolveKey(key: string, expiresIn = 3600) {
+  const { data } = await api.get(
+    `/api/upload/signed-url/${encodeURIComponent(key)}`,
+    { params: { expiresIn } },
+  );
+  return data.data; // { url, expiresAt }
+}
+```
+
+### Multiple keys (recommended for lists)
+
+```ts
+async function resolveKeys(keys: string[]) {
+  const { data } = await api.post("/api/upload/signed-urls", {
+    keys,
+    expiresIn: 3600,
+  });
+  return data.data as Record<string, { url: string; expiresAt: number | null }>;
+}
+```
+
+Use batch resolve for galleries/tables to avoid N calls.
+
+---
+
+## Refresh strategy for expiring URLs
+
+Treat `expiresAt` as cache metadata.
+
+```ts
+type ResolvedUrl = { url: string; expiresAt: number | null };
+
+const CACHE = new Map<string, ResolvedUrl>();
+const REFRESH_BUFFER_MS = 60_000; // refresh 1 minute early
+
+function isFresh(v: ResolvedUrl) {
+  if (v.expiresAt === null) return true; // public or local path
+  return v.expiresAt > Date.now() + REFRESH_BUFFER_MS;
+}
+
+export async function getRenderableUrl(key: string) {
+  const cached = CACHE.get(key);
+  if (cached && isFresh(cached)) return cached.url;
+
+  const { url, expiresAt } = await resolveKey(key);
+  CACHE.set(key, { url, expiresAt });
+  return url;
+}
+```
+
+Guidelines:
+
+- **Public (`expiresAt: null`)**: cache indefinitely
+- **Private**: refresh before expiry
+- **Never** replace your canonical key with signed URL
+
+---
+
+## Rendering patterns
+
+### Image tag
+
+```tsx
+<img src={url} alt="Avatar" onError={() => setUrl("/images/avatar-fallback.png")} />
+```
+
+### Download link
+
+```tsx
+<a href={url} download>
+  Download report
+</a>
+```
+
+### Fallback behavior when resolution fails
+
+`POST /api/upload/signed-urls` may return `{ url: "", expiresAt: null }` for keys that fail resolution. Guard this in UI:
+
+```ts
+const ref = resolved[key];
+if (!ref?.url) {
+  // hide preview, show placeholder, or show retry button
+}
+```
+
+---
+
+## When to use backend proxy (`GET /api/upload/file/*key`)
+
+Prefer direct/public/signed URLs by default. Use backend proxy only when you intentionally do not want storage URLs visible to clients.
+
+Trade-off:
+
+- Pro: client never sees bucket endpoint/query signature
+- Con: every file request goes through NestJS (`Cache-Control: private, max-age=3600`), increasing backend load/latency
+
+---
+
+## RustFS local setup notes (frontend impact)
+
+With RustFS in local Docker setup:
+
+- `STORAGE_BUCKET_FORCE_PATH_STYLE=true` is required
+- Public URLs are path-style and include bucket name in path
+  - example: `http://localhost:9000/apple/public/avatar/abc.webp`
+
+Frontend should treat this as an opaque URL source from API responses. Do not hardcode URL construction in the client.

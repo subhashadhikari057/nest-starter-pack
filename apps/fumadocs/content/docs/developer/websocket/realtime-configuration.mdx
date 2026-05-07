@@ -1,0 +1,33 @@
+---
+title: Realtime Configuration
+---
+
+These environment variables control the realtime WebSocket layer in the API app.
+
+## Environment Variables
+
+- `WS_ORIGINS`: Comma-separated list of allowed origins for Socket.IO CORS. Falls back to `CORS_ORIGINS`.
+- `WS_NAMESPACE`: Socket.IO namespace for realtime connections. Default: `/realtime`.
+- `WS_RATE_LIMIT_MAX_CONNECTIONS`: Maximum concurrent connections per user. Default: `100`.
+- `WS_RATE_LIMIT_PER_MINUTE`: Maximum events per minute per user. Default: `100`.
+- `EVENT_HISTORY_ENABLED`: Toggle event history storage. Default: `true`.
+- `EVENT_HISTORY_TTL`: Event history retention in seconds. Default: `3600`.
+- `ACK_TIMEOUT`: Acknowledgment timeout in milliseconds. Default: `10000`.
+- `ACK_RETRIES`: Number of acknowledgment retry attempts. Default: `0`.
+
+## Defaults and Validation
+
+The API module reads these variables using `ConfigService` and validates them with class-validator. Missing variables fall back to sensible defaults, while invalid values fail fast on startup.
+
+## Example (.env.example)
+
+```ini
+WS_ORIGINS=http://localhost:3000
+WS_NAMESPACE=/realtime
+WS_RATE_LIMIT_MAX_CONNECTIONS=100
+WS_RATE_LIMIT_PER_MINUTE=100
+EVENT_HISTORY_ENABLED=true
+EVENT_HISTORY_TTL=3600
+ACK_TIMEOUT=10000
+ACK_RETRIES=0
+```

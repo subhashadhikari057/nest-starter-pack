@@ -1,0 +1,249 @@
+---
+title: Role-Based Permissions System Setup
+description: This document summarizes the role-based permissions system that has been implemented.
+---
+
+# Role-Based Permissions System Setup
+
+This document summarizes the role-based permissions system that has been implemented.
+
+## ✅ What Has Been Completed
+
+### 1. **Role Enum**
+Added 5 role types to the system:
+- `superadmin` - Full system access
+- `admin` - Administrator access  
+- `staff` - Staff member access
+- `accountant` - Accountant access
+- `customer` - Customer access
+
+### 2. **Database Schema**
+Updated schema with:
+- Role enum type (`role_type`)
+- Permission table with module-based organization
+- Role-Permission mapping (many-to-many)
+- User-Role relationship (one-to-one)
+- Complete two-way relations using Drizzle ORM
+
+### 3. **Seed Script**
+Created comprehensive seed script that:
+- Creates 32 permissions across 8 modules (System, Users, Roles, Permissions, Finance, Inventory, Reports, Settings)
+- Creates superadmin role with all permissions
+- Creates a superadmin user with configurable credentials
+- Is idempotent (safe to run multiple times)
+
+### 4. **Scripts Added**
+Added to `package.json`:
+```bash
+pnpm db:seed  # Run from project root
+```
+
+## 📊 System Architecture
+
+```
+┌─────────┐         ┌──────┐         ┌─────────────┐
+│  User   │────1────│ Role │────M────│ Permission  │
+└─────────┘         └──────┘         └─────────────┘
+    1 user              1 role              Many permissions
+    = 1 role            = Many permissions
+```
+
+### Permission Structure
+Format: `{Module}_{Action}`
+
+Examples:
+- `Finance_CREATE` - Create permission for Finance module
+- `Finance_READ` - Read permission for Finance module  
+- `Finance_UPDATE` - Update permission for Finance module
+- `Finance_DELETE` - Delete permission for Finance module
+
+### Modules Included
+1. **System** - Core system operations
+2. **Users** - User management
+3. **Roles** - Role management
+4. **Permissions** - Permission management
+5. **Finance** - Financial operations
+6. **Inventory** - Inventory management
+7. **Reports** - Reporting functionality
+8. **Settings** - System settings
+
+Each module has 4 CRUD permissions (CREATE, READ, UPDATE, DELETE) = 32 total permissions
+
+## 🚀 Next Steps to Complete Setup
+
+### 1. Install Dependencies
+```bash
+cd packages/db
+pnpm install
+```
+
+### 2. Regenerate Migrations
+Since we added the role enum, regenerate migrations:
+```bash
+pnpm db:generate
+```
+
+### 3. Apply Migrations
+```bash
+pnpm db:push
+# or
+pnpm db:migrate
+```
+
+### 4. Configure Environment
+Edit `apps/api/.env` and add:
+```
+env
+# Database (should already exist)
+DATABASE_URL=postgresql://user:password@localhost:5432/dbname
+
+# Optional: Customize superadmin credentials
+SUPERADMIN_EMAIL=admin@yourdomain.com
+SUPERADMIN_PASSWORD=YourSecurePassword123!
+SUPERADMIN_NAME=System Administrator
+```
+
+### 5. Run Seed Script
+```bash
+pnpm db:seed
+```
+
+Expected output:
+```
+🌱 Starting database seed...
+📝 Creating permissions...
+✅ Created 32 permissions
+👑 Creating superadmin role...
+✅ Created superadmin role
+🔐 Assigning permissions to superadmin role...
+✅ Assigned 32 permissions to superadmin role
+👤 Creating superadmin user...
+✅ Created superadmin user
+
+📋 Superadmin Credentials:
+   Email: admin@yourdomain.com
+   Password: YourSecurePassword123!
+   ⚠️  Please change the password after first login!
+
+🎉 Database seeding completed successfully!
+```
+
+## 📝 Implementation Guide
+
+### Querying User with Permissions
+
+```typescript
+// Get user with role and all permissions
+const userWithPermissions = await db.query.user.findFirst({
+  where: eq(user.id, userId),
+  with: {
+    role: {
+      with: {
+        rolePermissions: {
+          with: {
+            permission: true
+          }
+        }
+      }
+    }
+  }
+});
+
+// Extract permission codes
+const permissions = userWithPermissions?.role?.rolePermissions.map(
+  rp => rp.permission.code
+) || [];
+
+// Check if user has permission
+const hasFinanceAccess = permissions.includes('Finance_READ');
+```
+
+### Creating Permission Guards
+
+Example NestJS guard:
+
+```typescript
+import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+
+@Injectable()
+export class PermissionsGuard implements CanActivate {
+  constructor(private reflector: Reflector) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const requiredPermissions = this.reflector.get<string[]>(
+      'permissions',
+      context.getHandler()
+    );
+    
+    if (!requiredPermissions) {
+      return true;
+    }
+
+    const request = context.switchToHttp().getRequest();
+    const user = request.user;
+    
+    // Fetch user permissions from database or session
+    const userPermissions = await this.getUserPermissions(user.id);
+    
+    return requiredPermissions.every(permission =>
+      userPermissions.includes(permission)
+    );
+  }
+}
+```
+
+### Using Permission Decorator
+
+```typescript
+import { SetMetadata } from '@nestjs/common';
+
+export const Permissions = (...permissions: string[]) =>
+  SetMetadata('permissions', permissions);
+
+// Usage in controller
+@Get('transactions')
+@Permissions('Finance_READ')
+async getTransactions() {
+  // Only users with Finance_READ permission can access
+}
+
+@Post('transactions')
+@Permissions('Finance_CREATE')
+async createTransaction(@Body() dto: CreateTransactionDto) {
+  // Only users with Finance_CREATE permission can access
+}
+```
+
+## 🔐 Security Best Practices
+
+1. **Always validate permissions** on the backend - never trust client-side checks
+2. **Use specific permissions** - prefer `Finance_READ` over broad `admin` checks
+3. **Audit permission changes** - log when roles/permissions are modified
+4. **Principle of least privilege** - give users only the permissions they need
+5. **Regular reviews** - periodically review user roles and permissions
+
+## 📚 Additional Resources
+
+- [Seed Script Documentation](./packages/db/SEED_README.md)
+- [Database Schema](./packages/db/src/schema/roles.ts)
+- [Seed Implementation](./packages/db/src/seed.ts)
+
+## 🎯 Summary of Changes
+
+**Files Created:**
+- `packages/db/src/seed.ts` - Seed script
+- `packages/db/SEED_README.md` - Seed documentation
+
+**Files Modified:**
+- `packages/db/src/schema/roles.ts` - Added role enum
+- `packages/db/src/schema/auth.ts` - Added roleId to user table
+- `packages/db/src/index.ts` - Exported roles schema
+- `packages/db/package.json` - Added seed script and dependencies
+- `package.json` - Added root-level seed script
+
+**Database Changes:**
+- Added `role_type` enum with 5 values
+- Modified `role.name` to use enum type
+- Added `user.role_id` foreign key
+- Removed `user_role` junction table (one-to-one relationship)

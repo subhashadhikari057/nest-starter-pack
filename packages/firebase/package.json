@@ -1,0 +1,29 @@
+{
+	"name": "@bullhouse/firebase",
+	"version": "0.0.0",
+	"type": "module",
+	"main": "./dist/index.js",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs",
+			"types": "./dist/index.d.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsdown",
+		"dev": "tsdown",
+		"check": "tsc --noEmit",
+		"lint": "biome check ."
+	},
+	"dependencies": {
+		"firebase-admin": "^13.6.0"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"tsdown": "catalog:",
+		"typescript": "catalog:"
+	}
+}

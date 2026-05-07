@@ -1,0 +1,81 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build outputs
+dist
+build
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.*
+!.env.generated
+.env*.local
+
+# IDEs and editors
+.claude
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Turbo
+.turbo
+
+# Better-T-Stack
+.alchemy
+
+# Testing
+coverage
+.nyc_output
+
+# Misc
+*.tgz
+.cache
+tmp
+temp
+
+# LiveKit docker configs (credentials in prod configs, keep local only)
+docker/livekit/
+
+# Generated files TanStack Router
+routeTree.gen.ts
+
+GEMINI.md
+AGENTS.md
+.obsidian
+.serena
+.osgrep
+.codex/*
+.codex
+.opencode/plans
+.sisyphus/*
+# Agent config - keep local only
+AGENTS.md
+codex.json
+.opencode/AGENTS.md
+
+.opencode/*
+
+# GSD planning artifacts
+.planning/
+
+# Server infra docs with credentials — keep local only
+docs/livestreaming/SERVER-SETUP-STATUS.md
+
+# Local dev bind-mount data directories (rustfs, etc.)
+data/
+.omx/

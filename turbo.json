@@ -1,0 +1,113 @@
+{
+	"$schema": "https://turbo.build/schema.json",
+	"ui": "tui",
+	"concurrency": "20",
+	"tasks": {
+		"build": {
+			"dependsOn": ["^build"],
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+		},
+		"customer#build": {
+			"dependsOn": ["@bullhouse/api#build", "^build"]
+		},
+		"start": {
+			"cache": false,
+			"persistent": true
+		},
+		"start:staging": {
+			"cache": false,
+			"persistent": true
+		},
+		"lint": {
+			"dependsOn": ["^lint"]
+		},
+		"check-types": {
+			"dependsOn": ["^build"]
+		},
+		"dev": {
+			"cache": false,
+			"persistent": true
+		},
+		"@bullhouse/api#dev": {
+			"dependsOn": [
+				"@bullhouse/db#dev",
+				"@bullhouse/jobs#dev",
+				"@bullhouse/redis#dev",
+				"@bullhouse/realtime-core#dev",
+				"@bullhouse/mongodb#dev",
+				"@bullhouse/firebase#dev"
+			],
+			"cache": false,
+			"persistent": true
+		},
+		"@bullhouse/db#dev": {
+			"cache": false,
+			"persistent": false
+		},
+		"@bullhouse/jobs#dev": {
+			"cache": false,
+			"persistent": false
+		},
+		"@bullhouse/redis#dev": {
+			"cache": false,
+			"persistent": false
+		},
+		"@bullhouse/realtime-core#dev": {
+			"cache": false,
+			"persistent": false
+		},
+		"@bullhouse/mongodb#dev": {
+			"cache": false,
+			"persistent": false
+		},
+		"@bullhouse/firebase#dev": {
+			"cache": false,
+			"persistent": false
+		},
+		"test": {
+			"cache": false,
+			"persistent": true
+		},
+		"db:push": {
+			"cache": false,
+			"persistent": true
+		},
+		"db:studio": {
+			"cache": false,
+			"persistent": true
+		},
+		"db:migrate": {
+			"cache": false,
+			"persistent": true
+		},
+		"db:generate": {
+			"cache": false,
+			"persistent": true
+		},
+		"db:start": {
+			"cache": false,
+			"persistent": true
+		},
+		"db:stop": {
+			"cache": false,
+			"persistent": true
+		},
+		"db:watch": {
+			"cache": false,
+			"persistent": true
+		},
+		"db:down": {
+			"cache": false,
+			"persistent": true
+		},
+		"db:seed": {
+			"cache": false,
+			"persistent": true
+		},
+		"db:seed:prod": {
+			"cache": false,
+			"persistent": false
+		}
+	}
+}

@@ -1,0 +1,43 @@
+---
+title: Realtime Architecture
+---
+
+This system separates framework-agnostic realtime logic from framework adapters so you can reuse the same core across NestJS, Express, and other servers.
+
+## Overview
+
+- `@bullhouse/realtime-core` contains business logic, room conventions, event models, and utilities.
+- The NestJS API imports the core and wires it to Socket.IO, Redis, auth, and health checks.
+
+```mermaid
+flowchart LR
+  A[Clients] -->|Socket.IO| B[API Gateway]
+  B --> C[Realtime Module]
+  C --> D[Realtime Core]
+  D --> E[(Redis)]
+  C --> F[Auth Guard]
+  C --> G[Domain Services]
+```
+
+## Core Boundaries
+
+- **Core**: framework-neutral, no NestJS/Express dependencies.
+- **Adapter**: framework-specific wiring (NestJS modules, gateways, guards).
+- **Clients**: Flutter/web/mobile subscribe to rooms and handle events.
+
+## Redis Role
+
+Redis is used for presence, event history, and Socket.IO scaling via the Redis adapter.
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant API
+  participant Core
+  participant Redis
+
+  Client->>API: connect + token
+  API->>Core: handleConnection
+  Core->>Redis: markOnline / history / presence
+  API-->>Client: ack
+```

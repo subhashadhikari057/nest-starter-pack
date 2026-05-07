@@ -1,0 +1,9 @@
+{
+	"extends": "./tsconfig.json",
+	"include": [
+		"src/**/*",
+		"src/modules/packer/dto/packer-order.examples.ts",
+		"src/modules/rider/rider-orders/dto/rider-order.examples.ts"
+	],
+	"exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+}
